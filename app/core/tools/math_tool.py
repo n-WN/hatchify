@@ -1,3 +1,10 @@
+"""Math tools for arithmetic operations.
+
+Demonstrates:
+1. How to get tool's input schema as Pydantic Model for Agent structured_output
+2. How to auto-generate output schema from tool's return type
+"""
+
 from strands import ToolContext, tool
 
 from app.core.factory.tool_factory import ToolRouter
@@ -7,6 +14,16 @@ math_router = ToolRouter()
 
 @tool(name="add", description="Add two numbers", context=True)
 async def add(a: float, b: float, tool_context: ToolContext) -> float:
+    """Add two numbers together.
+
+    Args:
+        a: First number
+        b: Second number
+        tool_context: Tool execution context
+
+    Returns:
+        Sum of a and b
+    """
     return a + b
 
 

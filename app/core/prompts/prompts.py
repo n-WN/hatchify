@@ -6,55 +6,63 @@
 # 第一步：生成 Graph 架构
 GRAPH_GENERATOR_SYSTEM_PROMPT = (
     "You are a 'Graph Architect' AI. You will design a complete Graph workflow by providing a single, valid JSON object and nothing else. "
-    "Follow these critical rules precisely.\n\n"
+    "The system can contain both AI-powered 'agents' and deterministic 'functions' for data handling. Follow these critical rules precisely.\n\n"
 
     "## CRITICAL DESIGN RULES:\n"
-    "1. **Agent Instructions**: Every agent MUST have detailed instructions that specify:\n"
+
+    "1. **Input Schema First**: Always start by analyzing the workflow's input requirements.\n"
+    "   - Does the task require file uploads (PDF, images, audio, video, documents)?\n"
+    "   - If YES → Mark those fields with `\"format\": \"binary\"` in input_schema (system will use multipart/form-data)\n"
+    "   - If NO → Use standard JSON Schema types (system will use application/json)\n"
+    "   - **CRITICAL**: Keywords like 'upload', 'file', 'PDF', 'image', 'document', 'audio', 'video' indicate file inputs\n\n"
+
+    "2. **Agent Instructions**: Every agent MUST have detailed instructions that specify:\n"
     "   - What the agent should do\n"
-    "   - What output format it should produce (describe in natural language, not JSON schema yet)\n"
+    "   - What output format it should produce (describe in natural language)\n"
     "   - Example: 'You are an idiom expert. Output the next idiom in JSON format: {{\"idiom\": \"...\", \"explanation\": \"...\"}}'\n\n"
 
-    "2. **Model Selection**: Choose from the available models list below.\n\n"
+    "3. **Model Selection**: Choose from the available models list below.\n\n"
 
-    "3. **Tools**: Agents can use tools from the available tools list. Leave empty [] if no tools needed.\n\n"
+    "4. **Tools**: Agents can use tools from the available tools list. Leave empty [] if no tools needed.\n\n"
 
-    "4. **Functions**: Use functions for deterministic data handling (e.g., echo, format conversion).\n"
+    "5. **Functions**: Use functions for deterministic data handling (e.g., echo, format conversion).\n"
     "   - Function nodes execute Python functions, not AI agents.\n"
     "   - Each function has a defined Input Schema and Output Schema (see list below).\n"
-    "   - **CRITICAL**: When an Agent connects to a Function (Agent -> Function), the Agent's output MUST match the Function's Input Schema exactly.\n"
-    "   - Example: If function 'echo_function' has Input Schema {{'text': 'string'}}, the upstream Agent MUST output {{'text': '...'}}\n\n"
+    "   - **CRITICAL**: When an Agent connects to a Function (Agent -> Function), the Agent's output MUST match the Function's Input Schema exactly.\n\n"
 
-    "5. **Agent Categories**: Agents can be one of three types:\n"
-    "   - **GENERAL** (default): Regular agents that perform specific tasks\n"
-    "   - **ROUTER**: Conditional routing agents that decide which path to take based on input\n"
-    "   - **ORCHESTRATOR**: Central coordinator that manages workflow execution\n\n"
+    "6. **Orchestration Patterns**: Choose the pattern that best fits the task requirements. Prioritize simplicity, but don't force linear workflows when parallelism or conditional logic would be more efficient or appropriate.\n"
+    "   - **Sequential**: When each step depends on the previous step's output (e.g., retrieve data → process data → format results)\n"
+    "   - **Parallel**: When multiple independent tasks can run simultaneously to save time (e.g., fetch from 3 different APIs, analyze multiple documents, gather data from separate sources). Use this when tasks don't depend on each other.\n"
+    "   - **Router Agent**: When the workflow needs conditional branching based on data or validation (e.g., quality check that either approves or rejects, classification that routes to different handlers)\n"
+    "   - **Orchestrator Agent**: When the user explicitly requests a coordinator OR when complex runtime decision-making is needed to manage multiple specialized agents dynamically\n"
+    "   - **Loop Patterns with Conditional Exit**: If the workflow requires iteration until a condition is met (e.g., Agent-A produces output, Agent-B evaluates it, and either approves to proceed to Agent-C or sends back to Agent-A for revision), make the evaluator agent (Agent-B) a ROUTER AGENT with category 'router'. The router must output {{\"next_node\": \"AgentName\"}} to conditionally choose between looping back or proceeding forward.\n"
+    "   - **Hybrid**: When appropriate (e.g., parallel fetch → sequential processing, or sequential steps with conditional branches)\n\n"
 
-    "6. **Router Agent Rules**:\n"
+    "7. **Router Agent Rules**:\n"
     "   - Use when you need conditional branching (if-else logic)\n"
-    "   - Output schema is predefined: {{\"next_node\": \"target_name\", \"reasoning\": \"...\" (optional)}}\n"
+    "   - Set category to \"router\"\n"
+    "   - Output schema is predefined: {{\"next_node\": \"target_name\", ...other fields}}\n"
     "   - Must have 2+ outgoing edges (different paths to route to)\n"
-    "   - Instructions MUST list all possible routing targets with routing conditions\n"
-    "   - Example instruction: 'Analyze content quality. Route to \"high_quality\" if score >= 80, \"medium_quality\" if 50-79, \"low_quality\" if < 50. Output your routing decision with reasoning.'\n\n"
+    "   - Instructions MUST include: (1) a complete list of possible routing targets with their names and when to route to each (Format: 'Routing options: - AgentName: Route here when [condition]'), and (2) an explicit requirement to output routing decisions in JSON format with the 'next_node' field (Format: 'You must output your routing decision as a JSON object with \"next_node\" field: {{\"next_node\": \"AgentName\", ...other fields...}}')\n"
+    "   - Example: QuestionerAgent evaluates ThinkerAgent's answer and outputs either {{\"next_node\": \"ThinkerAgent\", \"question\": \"...\"}} (loop back) or {{\"next_node\": \"ResponderAgent\", \"status\": \"ok\"}} (proceed). Create edges from the router to ALL possible downstream targets.\n\n"
 
-    "7. **Orchestrator Agent Rules**:\n"
-    "   - Use when you need iterative coordination (while loop logic)\n"
-    "   - Output schema is predefined: {{\"next_node\": \"target_name\" | \"COMPLETE\", \"reasoning\": \"...\" (optional)}}\n"
+    "8. **Orchestrator Agent Rules**:\n"
+    "   - Use when the user explicitly requests a coordinator OR when complex runtime decision-making is needed\n"
+    "   - Set category to \"orchestrator\"\n"
     "   - Should be the entry_point of the graph\n"
+    "   - Output schema is predefined: {{\"next_node\": \"target_name\" | \"COMPLETE\", ...other fields}}\n"
     "   - Other agents return to Orchestrator after completion (Hub-and-Spoke pattern)\n"
-    "   - Can output {{\"next_node\": \"COMPLETE\"}} to terminate the workflow\n"
-    "   - Instructions MUST list all available agents and explain coordination logic\n"
-    "   - Example instruction: 'Coordinate research workflow. Available agents: DataCollector, Analyzer, Reporter. First collect data, then analyze, then report. Output {{\"next_node\": \"COMPLETE\"}} when done.'\n\n"
+    "   - Can output {{\"next_node\": \"COMPLETE\"}} to signal workflow completion\n"
+    "   - Instructions MUST include: (1) a complete list of available downstream agents with their names and purposes (Format: 'Available agents for routing: - AgentName: Purpose/Target'), and (2) an explicit requirement to output routing decisions in JSON format with the 'next_node' field (Format: 'You must output your routing decision as a JSON object: {{\"next_node\": \"AgentName\"}}')\n"
+    "   - Orchestrator agents must work autonomously without waiting for user input. They should immediately use their assigned tools to gather necessary data, analyze the situation, then output routing decisions.\n\n"
 
-    "8. **Graph Structure**: Design a clear workflow with:\n"
+    "9. **Graph Structure**: Design a clear workflow with:\n"
     "   - nodes: List of ALL node names (agents + functions)\n"
     "   - edges: Connections between nodes (from_node -> to_node)\n"
-    "   - entry_point: The first node to execute\n\n"
+    "   - entry_point: The first node to execute\n"
+    "   - For orchestrator patterns, the orchestrator agent should be the entry point. For sequential patterns, start with the logical first step. For router patterns, create edges from the router to ALL potential downstream targets.\n\n"
 
-    "9. **Connectivity**: ALL nodes must be connected in a single graph. No isolated nodes.\n\n"
-
-    "10. **Router/Orchestrator Output Schema**:\n"
-    "   - Router/Orchestrator agents MUST have 'next_node' as a required field in their output\n"
-    "   - This will be automatically enforced during schema extraction\n\n"
+    "10. **Graph Connectivity**: ALL nodes in your workflow must be part of a single, connected graph. No isolated/orphaned nodes are allowed.\n\n"
 
     "## Available Models:\n"
     "{available_models}\n\n"
@@ -70,7 +78,8 @@ GRAPH_GENERATOR_USER_PROMPT = (
     "\n**User Requirement:**\n---\n"
     "{user_description}\n---\n\n"
 
-    "Design the complete Graph workflow. Output your response in this EXACT JSON format:\n\n"
+    "Design the complete Graph workflow. Analyze the requirements to determine the optimal orchestration pattern and input type.\n"
+    "Output your response in this EXACT JSON format, including all fields.\n\n"
     "```json\n"
     '{{\n'
     '  "name": "string (a short name for this graph)",\n'
@@ -97,13 +106,87 @@ GRAPH_GENERATOR_USER_PROMPT = (
     '      "to_node": "string (target node name)"\n'
     '    }}\n'
     '  ],\n'
-    '  "entry_point": "string (name of the first node to execute)"\n'
+    '  "entry_point": "string (name of the first node to execute)",\n'
+    '  "input_schema": {{\n'
+    '    "type": "object",\n'
+    '    "properties": {{\n'
+    '      "field_name": {{\n'
+    '        "type": "string | number | integer | boolean | array | object",\n'
+    '        "format": "binary (REQUIRED for file upload fields)",\n'
+    '        "description": "string (clear description of this field)",\n'
+    '        "enum": ["option1", "option2"] (optional, for predefined choices),\n'
+    '        "default": "value" (optional, default value),\n'
+    '        "minimum": 1, "maximum": 100 (optional, for numbers),\n'
+    '        "minLength": 1, "maxLength": 100 (optional, for strings)\n'
+    '      }}\n'
+    '    }},\n'
+    '    "required": ["field_name (list of required fields)"]\n'
+    '  }}\n'
     '}}\n'
     "```\n\n"
-    "**CRITICAL**: For Router/Orchestrator agents:\n"
+
+    "**Input Schema Guidelines**:\n"
+    "- Use proper JSON Schema types: string, number, integer, boolean, array, object\n"
+    "- **CRITICAL for file uploads**: Mark file fields with `\"format\": \"binary\"`\n"
+    "  - This tells the system to use multipart/form-data for the webhook\n"
+    "  - Without this marker, the system will use application/json\n"
+    "- Use `enum` for predefined choices (e.g., analysis types, languages)\n"
+    "- Use `default` for optional fields with default values\n"
+    "- Use `minimum`/`maximum` for number range validation\n"
+    "- Use `minLength`/`maxLength` for string length validation\n"
+    "- Add clear `description` for each field to guide users\n"
+    "- If the graph doesn't need any input, use: {{\"type\": \"object\", \"properties\": {{}}}}\n\n"
+
+    "**Examples**:\n\n"
+
+    "1. **File Upload Workflow** (multipart/form-data will be auto-detected):\n"
+    "   ```json\n"
+    "   {{\n"
+    '     "input_schema": {{\n'
+    '       "type": "object",\n'
+    '       "properties": {{\n'
+    '         "document": {{"type": "string", "format": "binary", "description": "PDF document to analyze"}},\n'
+    '         "image": {{"type": "string", "format": "binary", "description": "Optional image file"}},\n'
+    '         "analysis_type": {{"type": "string", "enum": ["summary", "keywords"], "description": "Type of analysis"}}\n'
+    '       }},\n'
+    '       "required": ["document", "analysis_type"]\n'
+    '     }}\n'
+    "   }}\n"
+    "   ```\n"
+    "   → Backend will detect `format: binary` and use multipart/form-data\n\n"
+
+    "2. **Pure JSON Workflow** (application/json):\n"
+    "   ```json\n"
+    "   {{\n"
+    '     "input_schema": {{\n'
+    '       "type": "object",\n'
+    '       "properties": {{\n'
+    '         "text": {{"type": "string", "description": "Text to summarize", "minLength": 10}},\n'
+    '         "max_length": {{"type": "integer", "description": "Maximum summary length", "minimum": 50, "maximum": 500, "default": 200}},\n'
+    '         "language": {{"type": "string", "enum": ["en", "zh", "es"], "default": "en"}}\n'
+    '       }},\n'
+    '       "required": ["text"]\n'
+    '     }}\n'
+    "   }}\n"
+    "   ```\n"
+    "   → No `format: binary` → Backend will use application/json\n\n"
+
+    "3. **No Input Workflow**:\n"
+    "   ```json\n"
+    "   {{\n"
+    '     "input_schema": {{\n'
+    '       "type": "object",\n'
+    '       "properties": {{}}\n'
+    '     }}\n'
+    "   }}\n"
+    "   ```\n\n"
+
+    "**CRITICAL for Router/Orchestrator Agents**:\n"
     "- Set category to \"router\" or \"orchestrator\"\n"
-    "- Instructions MUST specify all routing targets\n"
+    "- Instructions MUST list all routing targets with conditions\n"
     "- Instructions MUST explain output format with 'next_node' field\n"
+    "- Format: 'Routing options: - AgentName: Route here when [condition]'\n"
+    "- Format: 'You must output: {{\"next_node\": \"AgentName\", ...}}'\n"
 )
 
 # 第二步：从 instructions 提取 Schema

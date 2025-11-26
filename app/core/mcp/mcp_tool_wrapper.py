@@ -41,14 +41,15 @@ class MCPToolWrapper(AgentTool):
     def tool_type(self) -> str:
         return "function"
 
-    async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
+    async def stream(self, tool_use: ToolUse, invocation_state: Dict[str, Any], **kwargs: Any) -> ToolGenerator:
         mcp_client = MCPClient(self._transport_factory)
-        result = await mcp_client.call_tool_async(
-            tool_use_id=tool_use["toolUseId"],
-            name=self._tool_name,
-            arguments=tool_use["input"],
-        )
-        yield ToolResultEvent(result)
+        with mcp_client:
+            result = await mcp_client.call_tool_async(
+                tool_use_id=tool_use["toolUseId"],
+                name=self._tool_name,
+                arguments=tool_use["input"],
+            )
+            yield ToolResultEvent(result)
 
     def __call__(
             self,

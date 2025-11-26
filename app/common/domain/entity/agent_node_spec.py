@@ -1,8 +1,9 @@
 from typing import List, Optional, Dict, Any, Type
 
+from pydantic import Field, BaseModel, computed_field
+
 from app.common.domain.enums.agent_category import AgentCategory
 from app.utils.json_schema_2_pydantic import jsonschema_to_pydantic
-from pydantic import Field, BaseModel, computed_field
 
 
 class AgentNode(BaseModel):
@@ -30,7 +31,7 @@ class AgentNode(BaseModel):
     def structured_output_model(self) -> Optional[Type[BaseModel]]:
         if not self.structured_output_schema:
             return None
-        
+
         model_name = f"{self.name.capitalize()}Output"
         schema_with_title = {
             "title": model_name,
@@ -38,22 +39,3 @@ class AgentNode(BaseModel):
         }
 
         return jsonschema_to_pydantic(schema_with_title)
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "name": "quality_router",
-                "model": "claude-sonnet-4-5-20250929",
-                "instruction": "分析内容质量并路由...",
-                "category": "router",
-                "tools": [],
-                "structured_output_schema": {
-                    "transport": "object",
-                    "properties": {
-                        "next_node": {"transport": "string"},
-                        "reasoning": {"transport": "string"}
-                    },
-                    "required": ["next_node"]
-                }
-            }
-        }

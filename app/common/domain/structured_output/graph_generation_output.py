@@ -8,6 +8,8 @@
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 
+from app.common.domain.enums.agent_category import AgentCategory
+
 
 # ============================================================
 # Step 1: Graph 架构生成的输出
@@ -21,8 +23,8 @@ class AgentArchitecture(BaseModel):
         ...,
         description="Agent 的详细指令，必须在自然语言中描述输出格式"
     )
-    category: str = Field(
-        default="general",
+    category: AgentCategory = Field(
+        default=AgentCategory.GENERAL,
         description="Agent 类型: general, router, orchestrator"
     )
     tools: List[str] = Field(
@@ -64,6 +66,10 @@ class GraphArchitectureOutput(BaseModel):
         description="边列表，定义节点之间的连接关系"
     )
     entry_point: str = Field(..., description="入口节点名称")
+    input_schema: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Graph 输入 JSON Schema（用于前端生成输入表单）"
+    )
 
 
 # ============================================================

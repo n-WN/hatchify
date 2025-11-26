@@ -80,5 +80,9 @@ class MCPToolLoader:
             for server in servers
         ]
         for task in asyncio.as_completed(tasks):
-            all_wrappers.extend(await task)
+            try:
+                wrappers = await task
+                all_wrappers.extend(wrappers)
+            except Exception as e:
+                logger.exception(f"✗ Failed to load MCP tools asynchronously: {e}")
         return all_wrappers

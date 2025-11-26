@@ -2,7 +2,7 @@ from functools import lru_cache
 from typing import Type, Tuple, Optional
 
 from dotenv import load_dotenv
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, model_validator
 from pydantic_settings import (
     PydanticBaseSettingsSource,
     BaseSettings,
@@ -11,6 +11,7 @@ from pydantic_settings import (
 )
 
 from app.common.constants.constants import Constants
+from app.common.domain.enums.storage_type import StorageType
 
 load_dotenv(dotenv_path=Constants.Path.ENV_PATH)
 
@@ -32,8 +33,29 @@ class ModelSettings(BaseSettings):
     )
 
 
+class OpenDal(BaseModel):
+    opendal_schema: str = Field(alias='schema')
+    bucket: str
+    folder: str | None
+    root: str | None
+
+
+class StorageSettings(BaseModel):
+    platform: StorageType
+
+    opendal: OpenDal | None
+
+    @model_validator(mode='before')
+    def clear_conflicting_settings(self):
+        for key in [member for member in StorageType if member != self['platform']]:
+            self[key] = None
+        return self
+
+
 class HatchifySettings(BaseModel):
+    application: str
     models: ModelSettings | None = Field(default=None)
+    storage: StorageSettings | None = Field(default=None)
 
 
 class AppSettings(BaseSettings):

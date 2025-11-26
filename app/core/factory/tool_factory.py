@@ -112,7 +112,7 @@ class ToolRouter[T: AgentTool = AgentTool]:
         return "\n".join(lines)
 
     @staticmethod
-    def _get_function_output_model(tool: DecoratedFunctionTool):
+    def get_function_output_model(tool: DecoratedFunctionTool):
         """从 DecoratedFunctionTool 获取 output model
 
         Args:
@@ -151,7 +151,7 @@ class ToolRouter[T: AgentTool = AgentTool]:
             line += f"\n  Input Schema: {input_schema}"
 
             # Output schema
-            output_model = self._get_function_output_model(tool)
+            output_model = self.get_function_output_model(tool)
             if output_model:
                 output_schema = output_model.model_json_schema()
                 line += f"\n  Output Schema: {output_schema}"

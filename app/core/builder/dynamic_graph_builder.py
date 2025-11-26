@@ -3,7 +3,6 @@ from typing import Optional, Dict, Any, cast, List, Callable
 from loguru import logger
 from strands.agent import AgentResult
 from strands.hooks import HookProvider
-from strands.multiagent import GraphBuilder
 from strands.multiagent.graph import GraphState
 from strands.tools.decorator import DecoratedFunctionTool
 from strands.types.tools import AgentTool
@@ -13,6 +12,7 @@ from app.common.domain.entity.agent_node_spec import AgentNode
 from app.common.domain.entity.function_node_spec import FunctionNode
 from app.common.domain.entity.graph_spec import GraphSpec
 from app.common.domain.enums.agent_category import AgentCategory
+from app.core.builder.graph_wrapper import GraphBuilderAdapter
 from app.core.factory.agent_factory import create_agent_by_agent_card
 from app.core.factory.tool_factory import ToolRouter
 from app.core.nodes.function_node import FunctionNodeWrapper
@@ -76,7 +76,7 @@ class DynamicGraphBuilder:
         self._validate_unique_node_names(graph_spec)
 
         # 创建 GraphBuilder
-        builder = GraphBuilder()
+        builder = GraphBuilderAdapter()
 
         # 存储已创建的节点（用于验证边）
         created_nodes: Dict[str, Any] = {}
@@ -272,10 +272,10 @@ class DynamicGraphBuilder:
             ValueError: 节点名称重复
         """
         all_node_names = [
-            node.name for node in graph_spec.agents
-        ] + [
-            node.name for node in graph_spec.functions
-        ]
+                             node.name for node in graph_spec.agents
+                         ] + [
+                             node.name for node in graph_spec.functions
+                         ]
 
         duplicates = [name for name in all_node_names if all_node_names.count(name) > 1]
 
@@ -329,6 +329,7 @@ class DynamicGraphBuilder:
         Returns:
             条件函数，接受 GraphState，返回 bool
         """
+
         def condition(state: GraphState) -> bool:
             # 1. 获取 Router 的执行结果
             router_result = state.results.get(router_name)
@@ -349,10 +350,7 @@ class DynamicGraphBuilder:
                 return False
 
             # 4. 转换为 dict（可能是 Pydantic model）
-            if hasattr(structured_output, 'model_dump'):
-                output = structured_output.model_dump()
-            else:
-                output = structured_output
+            output = structured_output.model_dump()
 
             # 5. 读取 next_node 字段
             next_node = output.get("next_node")
@@ -388,6 +386,7 @@ class DynamicGraphBuilder:
         Returns:
             条件函数，接受 GraphState，返回 bool
         """
+
         def condition(state: GraphState) -> bool:
             # 1. 获取 Orchestrator 的执行结果
             orch_result = state.results.get(orch_name)
@@ -408,10 +407,7 @@ class DynamicGraphBuilder:
                 return False
 
             # 4. 转换为 dict（可能是 Pydantic model）
-            if hasattr(structured_output, 'model_dump'):
-                output = structured_output.model_dump()
-            else:
-                output = structured_output
+            output = structured_output.model_dump()
 
             # 5. 读取 next_node 字段
             next_node = output.get("next_node")

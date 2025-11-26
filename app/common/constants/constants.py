@@ -15,6 +15,8 @@ class Constants:
             RESOURCES_PATH, f"{os.environ.get('ENVIRONMENT', 'development')}.yaml"
         )
 
+        GRAPH_JSONS: str = os.path.join(ROOT_PATH, "graph_json")
+
 
 if __name__ == '__main__':
     print(Constants.Path.YAML_FILE_PATH)

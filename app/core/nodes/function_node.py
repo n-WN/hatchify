@@ -1,11 +1,11 @@
 import asyncio
 import inspect
-import logging
 import random
 import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, cast, Optional
 
+from loguru import logger
 from opentelemetry import trace as trace_api
 from pydantic import BaseModel
 from strands._async import run_async
@@ -14,7 +14,6 @@ from strands.experimental.hooks.multiagent import MultiAgentInitializedEvent, Af
     BeforeMultiAgentInvocationEvent, BeforeNodeCallEvent, AfterNodeCallEvent
 from strands.hooks import HookProvider, HookRegistry
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, Status, NodeResult
-from strands.multiagent.graph import Graph
 from strands.telemetry import get_tracer, EventLoopMetrics
 from strands.tools.decorator import DecoratedFunctionTool
 from strands.types._events import MultiAgentResultEvent, MultiAgentNodeStartEvent, MultiAgentNodeStopEvent
@@ -22,7 +21,8 @@ from strands.types.content import ContentBlock, Message
 from strands.types.event_loop import Usage, Metrics
 from strands.types.tools import ToolUse, ToolResult, ToolResultContent
 
-logger = logging.getLogger(__name__)
+from app.core.builder.graph_wrapper import GraphWrapper
+
 _DEFAULT_FUNCTION_ID = "default_function"
 
 
@@ -178,7 +178,7 @@ class FunctionNodeWrapper(MultiAgentBase):
             Tool expects: def echo(text: str)
             Returns: {"text": "hello"}
         """
-        graph: Optional[Graph] = invocation_state.get('source_graph')
+        graph: Optional[GraphWrapper] = invocation_state.get('source_graph')
 
         # Get structured output from dependency node
         if graph is None:

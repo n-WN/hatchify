@@ -3,8 +3,15 @@ hatchify:
   models:
     spec_generator:
       model: gemini-2.5-pro
-      provider: gemini  # Use native gemini for better tool calling compatibility
+      provider: gemini
     schema_extractor:
       model: gemini-2.5-pro
       provider: gemini
+  storage:
+    platform: opendal
+    opendal:
+      schema: fs
+      bucket: hatchify
+      folder: dev
+      root: storage
 

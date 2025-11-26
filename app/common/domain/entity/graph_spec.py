@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional, Dict, Any
 
 from pydantic import BaseModel, Field
 
@@ -11,13 +11,6 @@ class Edge(BaseModel):
     from_node: str = Field(..., description="起始节点名称")
     to_node: str = Field(..., description="目标节点名称")
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "from_node": "agent_1",
-                "to_node": "agent_2"
-            }
-        }
 
 
 class GraphSpec(BaseModel):
@@ -47,33 +40,17 @@ class GraphSpec(BaseModel):
         ...,
         description="入口节点名称（第一个执行的节点）"
     )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "name": "idiom_chain",
-                "description": "成语接龙 Graph",
-                "agents": [
-                    {
-                        "name": "agent_1",
-                        "model": "claude-sonnet-4-5-20250929",
-                        "instruction": "开始成语接龙，说出第一个成语",
-                        "category": "general",
-                        "tools": []
-                    },
-                    {
-                        "name": "agent_2",
-                        "model": "claude-sonnet-4-5-20250929",
-                        "instruction": "根据上一个成语接龙",
-                        "category": "general",
-                        "tools": []
-                    }
-                ],
-                "nodes": ["agent_1", "agent_2", "agent_3"],
-                "edges": [
-                    {"from_node": "agent_1", "to_node": "agent_2"},
-                    {"from_node": "agent_2", "to_node": "agent_3"}
-                ],
-                "entry_point": "agent_1"
-            }
-        }
+    input_schema: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Graph 输入 JSON Schema（用于前端表单生成和输入验证）\n"
+            "- 文件字段应标记为 format: 'binary'\n"
+            "- Webhook 处理方式（JSON vs Multipart）会根据 schema 自动推断\n"
+            "- 如果存在 format: 'binary' 字段 → 使用 multipart/form-data\n"
+            "- 否则 → 使用 application/json"
+        )
+    )
+    output_schema: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="由终端节点解析"
+    )

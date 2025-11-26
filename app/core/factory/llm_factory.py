@@ -1,77 +1,64 @@
-from typing import Optional, Union, Type, Dict, Any
+from typing import Dict, Any
 
-from pydantic import BaseModel
 from strands.models import Model
 from strands.models.gemini import GeminiModel
 from strands.models.litellm import LiteLLMModel
 from strands.models.openai import OpenAIModel
 
 from app.common.domain.entity.agent_card import AgentCard
-from app.common.domain.entity.model_card import ModelCard
+from app.common.domain.entity.model_card import ModelCard, ProviderCard
 from app.core.manager.model_card_manager import model_card_manager
 
 
-def create_llm_by_model_card(
+def get_model_by_family(
+        provider_card: ProviderCard,
         model_card: ModelCard,
-        response_format: Optional[Union[dict, Type[BaseModel]]] = None,
+        client_args: Dict[str, Any],
+        max_tokens: int
 ) -> Model:
-    """
-    创建 LLM 实例。
-
-    Args:
-        model_card: 模型配置卡片
-        response_format: 响应格式配置
-            - {"type": "json_object"}: 启用 JSON mode，LLM 返回 JSON 字符串
-            - Pydantic BaseModel: 启用 structured output（注意 Gemini 不支持动态类型）
-
-    Returns:
-        LiteLLMModel 实例
-    """
-    provider_card = model_card_manager.get_active_provider(model_card.provider_id)
-
-    base_url = provider_card.base_url
-    api_key = provider_card.api_key
-
-    # 如果指定了 response_format，添加到 params
-    # 注意：不同 provider 使用不同的参数名称
     match provider_card.family:
         case "openai":
             params = {
-                "max_completion_tokens": model_card.max_tokens,
+                "max_completion_tokens": max_tokens,
             }
-            if response_format is not None:
-                params["response_format"] = response_format
             return OpenAIModel(
-                client_args={
-                    "api_key": api_key,
-                    "base_url": base_url,
-                },
+                client_args=client_args,
                 model_id=model_card.id,
                 params=params
             )
         case "gemini":
-            # Gemini 使用 max_output_tokens 而不是 max_completion_tokens
             params = {
-                "max_output_tokens": model_card.max_tokens,
+                "max_output_tokens": max_tokens,
             }
-            # Gemini 不支持 response_format 参数（使用 response_schema 替代）
             return GeminiModel(
-                client_args={
-                    "api_key": api_key,
-                    "base_url": base_url,
-                },
+                client_args=client_args,
                 model_id=model_card.id,
                 params=params
             )
         case _:
+            # 其他 provider 使用 LiteLLMModel
+            params = {
+                "max_completion_tokens": max_tokens,
+            }
             return LiteLLMModel(
-                client_args={
-                    "api_key": api_key,
-                    "base_url": base_url,
-                },
+                client_args=client_args,
                 model_id=f"{provider_card.family}/{model_card.id}",
                 params=params
             )
+
+
+def create_llm_by_model_card(model_card: ModelCard) -> Model:
+    provider_card = model_card_manager.get_active_provider(model_card.provider_id)
+
+    base_url = provider_card.base_url
+    api_key = provider_card.api_key
+    client_args = {}
+    if api_key is not None:
+        client_args["api_key"] = api_key
+    if base_url is not None:
+        client_args["base_url"] = base_url
+
+    return get_model_by_family(provider_card, model_card, client_args, provider_card.max_tokens)
 
 
 def create_llm_by_agent_card(agent_card: AgentCard) -> Model:
@@ -124,36 +111,4 @@ def create_llm_by_agent_card(agent_card: AgentCard) -> Model:
     if base_url is not None:
         client_args["base_url"] = base_url
 
-    # 根据 provider family 选择合适的 Model 实现
-    # 注意：不同 provider 使用不同的参数名称
-    match provider_card.family:
-        case "openai":
-            params = {
-                "max_completion_tokens": max_tokens,
-            }
-            return OpenAIModel(
-                client_args=client_args,
-                model_id=model_card.id,
-                params=params
-            )
-        case "gemini":
-            # 使用 GeminiModel 原生支持 Gemini 特性（包括 thinking mode 和 reasoningContent）
-            # Gemini 使用 max_output_tokens 而不是 max_completion_tokens
-            params = {
-                "max_output_tokens": max_tokens,
-            }
-            return GeminiModel(
-                client_args=client_args,
-                model_id=model_card.id,
-                params=params
-            )
-        case _:
-            # 其他 provider 使用 LiteLLMModel
-            params = {
-                "max_completion_tokens": max_tokens,
-            }
-            return LiteLLMModel(
-                client_args=client_args,
-                model_id=f"{provider_card.family}/{model_card.id}",
-                params=params
-            )
+    return get_model_by_family(provider_card, model_card, client_args, max_tokens)

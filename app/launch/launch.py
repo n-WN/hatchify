@@ -14,7 +14,9 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.business.api.v1.webhook_router import init_graph_registry, webhook_router
 from app.common.domain.result.result import Result
+from app.common.extensions.ext_storage import init_storage
 from app.common.settings.settings import get_hatchify_settings
 from app.core.manager.tool_manager import async_load_mcp_server, async_load_strands_tools
 
@@ -25,6 +27,8 @@ async def initialize_extensions():
     await asyncio.gather(
         async_load_mcp_server(),
         async_load_strands_tools(),
+        init_storage(),
+        init_graph_registry()
     )
 
 
@@ -42,8 +46,8 @@ async def lifespan(fastapi: FastAPI):
 
 
 app = FastAPI(
-    title="We0 API",
-    description="API for We0",
+    title="Hatchify API",
+    description="API for Hatchify",
     version="0.0.1",
     root_path="/api",
     lifespan=lifespan,
@@ -72,3 +76,6 @@ async def home():
 @app.get("/health")
 async def health():
     return JSONResponse(content={"status": "ok"})
+
+
+app.include_router(webhook_router, tags=["webhooks"])

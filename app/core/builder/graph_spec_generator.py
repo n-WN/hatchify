@@ -1,28 +1,19 @@
-"""GraphSpecGenerator - 使用 LLM 生成 GraphSpec
-
-基于 YAgents 的实现，但做了简化和优化：
-1. MVP 版本：只支持 GENERAL agent
-2. 两步 LLM 调用：生成架构 + 提取 schemas
-3. 使用 Hatchify 的优雅架构：
-   - create_llm_by_model_card 获取 LLM
-   - ToolRouter.format_for_prompt() 获取工具列表
-   - llm.structured_output() 获取类型安全的输出
-"""
-
 from typing import Tuple, Optional, List, Dict
 
 from litellm.types.completion import ChatCompletionSystemMessageParam, \
     ChatCompletionUserMessageParam
 from loguru import logger
+from strands.tools.decorator import DecoratedFunctionTool
 
 from app.common.domain.entity.agent_node_spec import AgentNode
 from app.common.domain.entity.function_node_spec import FunctionNode
 from app.common.domain.entity.graph_spec import GraphSpec, Edge
+from app.common.domain.structured_output.graph_generation_output import AgentSchema
 from app.common.domain.structured_output.graph_generation_output import (
     GraphArchitectureOutput,
     SchemaExtractionOutput,
 )
-from app.common.domain.enums.agent_category import AgentCategory
+from app.common.domain.structured_output.pre_defined_schema import get_predefined_schema
 from app.common.settings.settings import get_hatchify_settings
 from app.core.factory.tool_factory import ToolRouter
 from app.core.manager.model_card_manager import ModelCardManager
@@ -31,8 +22,8 @@ from app.core.prompts.prompts import (
     GRAPH_GENERATOR_USER_PROMPT,
     SCHEMA_EXTRACTOR_PROMPT,
 )
-from app.common.domain.structured_output.pre_defined_schema import get_predefined_schema
 from app.core.utils.json_generator import json_generator
+from app.core.utils.schema_utils import generate_output_schema
 
 
 class GraphSpecGenerator:
@@ -59,10 +50,10 @@ class GraphSpecGenerator:
     """
 
     def __init__(
-        self,
-        model_card_manager: ModelCardManager,
-        tool_router: ToolRouter,
-        function_router: ToolRouter,
+            self,
+            model_card_manager: ModelCardManager,
+            tool_router: ToolRouter,
+            function_router: ToolRouter[DecoratedFunctionTool],
     ):
         """初始化 GraphSpecGenerator
 
@@ -82,25 +73,12 @@ class GraphSpecGenerator:
             raise ValueError("配置文件中未找到 models 配置")
 
         self.spec_gen_config = settings.models.spec_generator
-        schema_ext_config = settings.models.schema_extractor
-
-        # Step 1 使用 json_generator (只需要保存配置)
-        # 不再需要 spec_generator_llm
-
-        # Step 2 使用 json_generator (只需要保存配置)
-        self.schema_extractor_provider = schema_ext_config.provider
-        self.schema_extractor_model = schema_ext_config.model
-
-        logger.info(
-            f"GraphSpecGenerator 初始化完成 | "
-            f"Spec生成模型: {self.spec_gen_config.model} | "
-            f"Schema提取模型: {schema_ext_config.model}"
-        )
+        self.spec_ext_config = settings.models.spec_generator
 
     async def generate_graph_spec(
-        self,
-        user_description: str,
-        conversation_history: Optional[List[Dict]] = None,
+            self,
+            user_description: str,
+            conversation_history: Optional[List[Dict]] = None,
     ) -> Tuple[GraphSpec, List[Dict]]:
         """从自然语言描述生成 GraphSpec
 
@@ -125,7 +103,7 @@ class GraphSpecGenerator:
         )
 
         logger.info(f"Step 1 完成: 生成了 {len(graph_arch.agents)} 个 agents, "
-                   f"{len(graph_arch.functions)} 个 functions")
+                    f"{len(graph_arch.functions)} 个 functions")
 
         # Step 2: 调用 LLM 提取 JSON schemas
         schemas_output = await self._extract_schemas(graph_arch)
@@ -140,9 +118,9 @@ class GraphSpecGenerator:
         return graph_spec, messages
 
     async def _generate_graph_architecture(
-        self,
-        user_description: str,
-        conversation_history: Optional[List[Dict]] = None,
+            self,
+            user_description: str,
+            conversation_history: Optional[List[Dict]] = None,
     ) -> Tuple[GraphArchitectureOutput, List[Dict]]:
         """Step 1: 生成 Graph 架构
 
@@ -190,14 +168,13 @@ class GraphSpecGenerator:
         return result, messages
 
     async def _extract_schemas(
-        self,
-        graph_arch: GraphArchitectureOutput,
+            self,
+            graph_arch: GraphArchitectureOutput,
     ) -> SchemaExtractionOutput:
         """Step 2: 从 agent instructions 提取 JSON schemas
 
         Router/Orchestrator 使用预定义 schema，General Agent 通过 LLM 提取。
         """
-        from app.common.domain.structured_output.graph_generation_output import AgentSchema
 
         agent_schemas = []
 
@@ -247,8 +224,8 @@ class GraphSpecGenerator:
 
             # 使用 json_generator - 自动处理 JSON 解析、验证和重试
             llm_result = await json_generator(
-                provider_id=self.schema_extractor_provider,
-                model_id=self.schema_extractor_model,
+                provider_id=self.spec_ext_config.provider,
+                model_id=self.spec_ext_config.model,
                 messages=[
                     ChatCompletionSystemMessageParam(
                         role="system",
@@ -269,14 +246,15 @@ class GraphSpecGenerator:
         # 返回完整的 SchemaExtractionOutput
         return SchemaExtractionOutput(agent_schemas=agent_schemas)
 
-    @staticmethod
     def _merge_and_create_spec(
-        graph_arch: GraphArchitectureOutput,
-        schemas_output: SchemaExtractionOutput,
+            self,
+            graph_arch: GraphArchitectureOutput,
+            schemas_output: SchemaExtractionOutput,
     ) -> GraphSpec:
         """Step 3: 合并 schemas 并创建 GraphSpec 对象
 
-        将 LLM 返回的 Pydantic 对象转换为 GraphSpec
+        将 LLM 返回的 Pydantic 对象转换为 GraphSpec，
+        并自动生成 output_schema（从终端节点提取）。
         """
         # 创建 agent name -> schema 的映射
         schema_map = {
@@ -295,8 +273,7 @@ class GraphSpecGenerator:
                 name=agent_arch.name,
                 model=agent_arch.model,
                 instruction=agent_arch.instruction,
-                # 转换为小写以匹配 AgentCategory 枚举值
-                category=AgentCategory(agent_arch.category.lower()),
+                category=agent_arch.category,
                 tools=agent_arch.tools,
                 structured_output_schema=structured_output_schema,
             )
@@ -320,7 +297,7 @@ class GraphSpecGenerator:
             )
             edges.append(edge)
 
-        # 创建 GraphSpec
+        # 创建 GraphSpec（先创建用于后续生成 output_schema）
         graph_spec = GraphSpec(
             name=graph_arch.name,
             description=graph_arch.description,
@@ -329,6 +306,18 @@ class GraphSpecGenerator:
             nodes=graph_arch.nodes,
             edges=edges,
             entry_point=graph_arch.entry_point,
+            input_schema=graph_arch.input_schema,  # 从 LLM 生成的架构中获取
+            output_schema=None,
         )
+
+        # Step 4: 自动生成 output_schema（从终端节点提取）
+        try:
+            output_schema = generate_output_schema(graph_spec, self.function_router)
+            graph_spec.output_schema = output_schema
+            logger.info(
+                f"自动生成 output_schema: {len(output_schema.get('properties', {}))} 个输出字段"
+            )
+        except Exception as e:
+            logger.error(f"生成 output_schema 失败: {e}", exc_info=True)
 
         return graph_spec

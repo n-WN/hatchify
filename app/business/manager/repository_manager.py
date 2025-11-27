@@ -9,3 +9,10 @@ class RepositoryManager:
         if repo_class not in cls._instances:
             cls._instances[repo_class] = repo_class()
         return cls._instances[repo_class]
+
+    @classmethod
+    def get_repository_dependency(cls, repo_class: Type):
+        def provider():
+            return cls.get_repository(repo_class)
+
+        return provider

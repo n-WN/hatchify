@@ -14,6 +14,8 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.business.api.v1.agent_router import agents_router
+from app.business.api.v1.graph_router import graphs_router
 from app.business.api.v1.webhook_router import init_graph_registry, webhook_router
 from app.common.domain.result.result import Result
 from app.common.extensions.ext_storage import init_storage
@@ -79,3 +81,5 @@ async def health():
 
 
 app.include_router(webhook_router, tags=["webhooks"])
+app.include_router(graphs_router, tags=["graphs"])
+app.include_router(agents_router, tags=["agents"])

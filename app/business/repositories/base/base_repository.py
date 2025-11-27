@@ -1,9 +1,11 @@
 import abc
-from typing import Type, Sequence, Any, Generic, Optional
+from typing import Type, Sequence, Any, Generic, Optional, Iterable
 
+from fastapi_pagination import Page
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.business.db.base import T
+from app.business.utils.pagination_utils import CustomParams
 
 
 class BaseRepository(Generic[T], metaclass=abc.ABCMeta):
@@ -57,4 +59,28 @@ class BaseRepository(Generic[T], metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     async def delete_by_id(self, session: AsyncSession, id_: Any) -> bool:
+        ...
+
+    @abc.abstractmethod
+    async def delete_in(
+            self,
+            session: AsyncSession,
+            entity_ids: Iterable[Any],
+    ) -> bool:
+        ...
+    async def paginate(
+            self,
+            session: AsyncSession,
+            params: Optional[CustomParams] = None,
+            sort: Optional[str] = None
+    ) -> Page[T]:
+        ...
+
+    async def paginate_by(
+            self,
+            session: AsyncSession,
+            params: Optional[CustomParams] = None,
+            sort: Optional[str] = None,
+            **filters
+    ) -> Page[T]:
         ...

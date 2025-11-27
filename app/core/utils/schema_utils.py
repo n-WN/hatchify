@@ -132,8 +132,8 @@ def generate_output_schema(
 
         # 添加到 properties
         if node_schema:
-            properties[f"{node_name}_output"] = node_schema
-            required.append(f"{node_name}_output")
+            properties[node_name] = node_schema
+            required.append(node_name)
 
     # Step 4: 构建最终的 output_schema
     output_schema = {

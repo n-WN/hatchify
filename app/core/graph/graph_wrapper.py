@@ -7,6 +7,7 @@ from strands.types.content import ContentBlock
 
 
 class GraphWrapper(Graph):
+
     def _build_node_input(self, node: GraphNode) -> list[ContentBlock]:
         """Build input text for a node based on dependency outputs.
 
@@ -62,12 +63,13 @@ class GraphWrapper(Graph):
             agent_results: List[AgentResult] = node_result.get_agent_results()
             for result in agent_results:
                 agent_name = getattr(result, "agent_name", dep_id)
-                result_text = str(result)
-                if not result_text and result.structured_output:
+                if result.structured_output:
                     result_text = result.structured_output.model_dump_json()
                 else:
-                    logger.warning(f"{agent_name} agent has no output!")
-                    result_text = "[block]"
+                    result_text = str(result)
+                    if not result_text:
+                        logger.warning(f"{agent_name} agent has no output!")
+                        result_text = "[block]"
                 node_input.append(ContentBlock(text=f"  - {agent_name}: {result_text}"))
 
         return node_input

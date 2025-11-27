@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Type, Tuple, Optional
+from typing import Type, Tuple, Optional, Any
 
 from dotenv import load_dotenv
 from pydantic import Field, BaseModel, model_validator
@@ -11,6 +11,8 @@ from pydantic_settings import (
 )
 
 from app.common.constants.constants import Constants
+from app.common.domain.enums.db_type import DatabasePlatform
+from app.common.domain.enums.session_manager_type import SessionManagerType
 from app.common.domain.enums.storage_type import StorageType
 
 load_dotenv(dotenv_path=Constants.Path.ENV_PATH)
@@ -34,7 +36,7 @@ class ModelSettings(BaseSettings):
 
 
 class OpenDal(BaseModel):
-    opendal_schema: str = Field(alias='schema')
+    opendal_schema: str | None = Field(default="fs", alias='schema')
     bucket: str
     folder: str | None
     root: str | None
@@ -52,10 +54,44 @@ class StorageSettings(BaseModel):
         return self
 
 
+class FileManagerSettings(BaseSettings):
+    folder: str | None
+    root: str | None
+
+
+class SessionManagerSettings(BaseSettings):
+    manager: SessionManagerType
+    file: FileManagerSettings | None = Field(default=None)
+
+
+class SqliteSettings(BaseModel):
+    url: str
+    echo: bool = Field(default=False)
+    pool_pre_ping: bool = Field(default=True, alias="pool-pre-ping")
+    connect_args: dict[str, Any] = Field(
+        default_factory=dict,
+        alias="connect-args",
+    )
+
+
+class DbSettings(BaseModel):
+    platform: DatabasePlatform
+    sqlite: SqliteSettings | None = None
+
+    @model_validator(mode="before")
+    def clear_conflicting_settings(cls, values: dict):
+        platform = values.get("platform")
+        if platform != "sqlite":
+            values["sqlite"] = None
+        return values
+
+
 class HatchifySettings(BaseModel):
     application: str
     models: ModelSettings | None = Field(default=None)
     storage: StorageSettings | None = Field(default=None)
+    session_manager: SessionManagerSettings | None = Field(default=None, alias="session-manager")
+    db: DbSettings | None = Field(default=None)
 
 
 class AppSettings(BaseSettings):

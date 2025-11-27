@@ -2,13 +2,11 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from loguru import logger
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
-from app.common.settings.settings import get_hatchify_settings
+from app.core.factory.sql_engine_factory import create_sql_engine
 
-settings = get_hatchify_settings()
-
-engine = create_async_engine(url=settings.database.pg_url, pool_pre_ping=True, echo=False)
+engine = create_sql_engine()
 
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

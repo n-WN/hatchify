@@ -1,17 +1,17 @@
-from typing import Type, Any, Optional, Sequence, cast, List, Tuple
+from typing import Type, Any, Optional, Sequence, cast, List, Tuple, Iterable
 
+from fastapi_pagination import Page
 from sqlalchemy import select, desc, asc
 from sqlalchemy import update as sql_update, delete, func, Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.business.db.base import T
 from app.business.repositories.base.base_repository import BaseRepository
+from app.business.utils.pagination_utils import CustomParams, PaginationHelper
 
 
 class GenericRepository(BaseRepository[T]):
-
     def __init__(self, entity_type: Type[T]):
-
         super().__init__(entity_type)
 
     @staticmethod
@@ -139,7 +139,7 @@ class GenericRepository(BaseRepository[T]):
     ) -> Optional[T]:
         stmt = (
             sql_update(self.entity_type)
-            .where(self.entity_type.id == entity_id)  # transport: ignore[arg-transport]
+            .where(self.entity_type.id == entity_id)  # type: ignore
             .values(**update_data)
             .returning(self.entity_type)
         )
@@ -153,6 +153,53 @@ class GenericRepository(BaseRepository[T]):
         return merged
 
     async def delete_by_id(self, session: AsyncSession, entity_id: Any) -> bool:
-        stmt = delete(self.entity_type).where(self.entity_type.id == entity_id)  # transport: ignore[arg-transport]
+        stmt = delete(self.entity_type).where(self.entity_type.id == entity_id)  # type: ignore
         result = await session.execute(stmt)
-        return cast(int, result.rowcount) > 0
+        return cast(int, result.rowcount) > 0  # type: ignore
+
+    async def delete_in(
+            self,
+            session: AsyncSession,
+            entity_ids: Iterable[Any],
+    ) -> bool:
+        ids = list(entity_ids)
+        if not ids:
+            return False
+
+        stmt = (
+            delete(self.entity_type)
+            .where(self.entity_type.id.in_(ids))  # type: ignore
+        )
+
+        result = await session.execute(stmt)
+        affected = cast(int, result.rowcount) or 0  # type: ignore
+
+        return affected > 0
+
+    async def paginate(
+            self,
+            session: AsyncSession,
+            params: Optional[CustomParams] = None,
+            sort: Optional[str] = None
+    ) -> Page[T]:
+        return await PaginationHelper.paginate_with_sorting(
+            session=session,
+            entity_type=self.entity_type,
+            params=params,
+            sort=sort
+        )
+
+    async def paginate_by(
+            self,
+            session: AsyncSession,
+            params: Optional[CustomParams] = None,
+            sort: Optional[str] = None,
+            **filters
+    ) -> Page[T]:
+        return await PaginationHelper.paginate_with_sorting(
+            session=session,
+            entity_type=self.entity_type,
+            params=params,
+            sort=sort,
+            **filters
+        )

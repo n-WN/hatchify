@@ -12,12 +12,11 @@ class Result[T](BaseModel):
     code: int
     message: str
     data: T | None = None
-    success: bool
 
     @classmethod
     def ok(cls, data: T | None = None, code: int = 200, message: str = "Success"):
-        return cls(code=code, message=message, data=data, success=True)
+        return cls(code=code, message=message, data=data)
 
     @classmethod
     def failed(cls, code: int = 500, message: str = "Internal Server Error"):
-        return cls(code=code, message=message, success=False)
+        return cls(code=code, message=message)

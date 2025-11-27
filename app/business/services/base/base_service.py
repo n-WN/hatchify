@@ -1,13 +1,14 @@
 from abc import ABC, abstractmethod
 from typing import Type, Any, Generic, Collection, Optional
 
+from fastapi_pagination import Page
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.business.db.base import T
+from app.business.utils.pagination_utils import CustomParams
 
 
 class BaseService(Generic[T], ABC):
-
     def __init__(self, entity_type: Type[T]):
         self.entity_type = entity_type
 
@@ -83,4 +84,21 @@ class BaseService(Generic[T], ABC):
             entity_id: Any,
             commit: bool = True
     ) -> bool:
+        ...
+
+    async def get_paginated(
+            self,
+            session: AsyncSession,
+            params: Optional[CustomParams] = None,
+            sort: Optional[str] = None
+    ) -> Page[T]:
+        ...
+
+    async def get_paginated_list(
+            self,
+            session: AsyncSession,
+            params: Optional[CustomParams] = None,
+            sort: Optional[str] = None,
+            **filters
+    ) -> Page[T]:
         ...

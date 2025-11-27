@@ -4,6 +4,7 @@ from loguru import logger
 from strands.agent import AgentResult
 from strands.hooks import HookProvider
 from strands.multiagent.graph import GraphState
+from strands.session import SessionManager
 from strands.tools.decorator import DecoratedFunctionTool
 from strands.types.tools import AgentTool
 
@@ -12,7 +13,8 @@ from app.common.domain.entity.agent_node_spec import AgentNode
 from app.common.domain.entity.function_node_spec import FunctionNode
 from app.common.domain.entity.graph_spec import GraphSpec
 from app.common.domain.enums.agent_category import AgentCategory
-from app.core.builder.graph_wrapper import GraphBuilderAdapter
+from app.common.domain.enums.session_manager_type import SessionManagerType
+from app.core.graph.graph_wrapper import GraphBuilderAdapter
 from app.core.factory.agent_factory import create_agent_by_agent_card
 from app.core.factory.tool_factory import ToolRouter
 from app.core.nodes.function_node import FunctionNodeWrapper
@@ -43,7 +45,8 @@ class DynamicGraphBuilder:
             tool_router: ToolRouter[AgentTool],
             function_router: ToolRouter[DecoratedFunctionTool],
             hooks: Optional[List[HookProvider]] = None,
-            execution_timeout: int = 600
+            execution_timeout: int = 600,
+            session_manager: Optional[SessionManager] = None,
     ):
         """初始化 DynamicGraphBuilder
 
@@ -57,6 +60,7 @@ class DynamicGraphBuilder:
         self.function_router = function_router
         self.hooks = hooks or []
         self.execution_timeout = execution_timeout
+        self.session_manager = session_manager
 
     def build_graph(self, graph_spec: GraphSpec) -> Any:
         """根据 GraphSpec 构建可执行的 Strands Graph
@@ -70,32 +74,24 @@ class DynamicGraphBuilder:
         Raises:
             ValueError: 节点名称重复、边引用的节点不存在、工具不存在等错误
         """
-        logger.info(f"开始构建 Graph: {graph_spec.name}")
-
-        # 验证节点名称唯一性
         self._validate_unique_node_names(graph_spec)
 
-        # 创建 GraphBuilder
         builder = GraphBuilderAdapter()
 
-        # 存储已创建的节点（用于验证边）
         created_nodes: Dict[str, Any] = {}
 
         # 步骤 1: 添加所有 Agent 节点
         for agent_node in graph_spec.agents:
-            logger.info(f"创建 Agent 节点: {agent_node.name}")
             agent = self._create_agent_node(agent_node)
             builder.add_node(agent, agent_node.name)
             created_nodes[agent_node.name] = agent
 
         # 步骤 2: 添加所有 Function 节点
         for function_node_spec in graph_spec.functions:
-            logger.info(f"创建 Function 节点: {function_node_spec.name}")
             function_node = self._create_function_node(function_node_spec)
             builder.add_node(function_node, function_node_spec.name)
             created_nodes[function_node_spec.name] = function_node
 
-        # 步骤 3: 验证并添加所有边（支持 Router 条件边）
         for edge in graph_spec.edges:
             if edge.from_node not in created_nodes:
                 raise ValueError(
@@ -108,47 +104,37 @@ class DynamicGraphBuilder:
                     f"可用节点: {list(created_nodes.keys())}"
                 )
 
-            # 检查 from_node 是否是 Router/Orchestrator
             from_agent_spec = self._get_agent_spec_by_name(graph_spec, edge.from_node)
 
             if from_agent_spec and from_agent_spec.category == AgentCategory.ROUTER:
-                # Router 节点：添加条件边
                 condition = self._create_router_condition(edge.from_node, edge.to_node)
-                logger.debug(f"添加 Router 条件边: {edge.from_node} -> {edge.to_node}")
                 builder.add_edge(edge.from_node, edge.to_node, condition=condition)
 
             elif from_agent_spec and from_agent_spec.category == AgentCategory.ORCHESTRATOR:
-                # Orchestrator 节点：添加条件边（支持 COMPLETE）
                 condition = self._create_orchestrator_condition(edge.from_node, edge.to_node)
-                logger.debug(f"添加 Orchestrator 条件边: {edge.from_node} -> {edge.to_node}")
                 builder.add_edge(edge.from_node, edge.to_node, condition=condition)
 
             else:
-                # General Agent/Function：添加静态边
-                logger.debug(f"添加静态边: {edge.from_node} -> {edge.to_node}")
                 builder.add_edge(edge.from_node, edge.to_node)
 
-        # 步骤 4: 设置入口点
         if graph_spec.entry_point not in created_nodes:
             raise ValueError(
                 f"入口点 '{graph_spec.entry_point}' 不存在于 Graph 中。"
                 f"可用节点: {list(created_nodes.keys())}"
             )
-        builder.set_entry_point(graph_spec.entry_point)
-        logger.info(f"设置入口点: {graph_spec.entry_point}")
 
-        # 步骤 5: 设置 hooks（如果有）
+        builder.set_entry_point(graph_spec.entry_point)
+
         if self.hooks:
             builder.set_hook_providers(self.hooks)
-            logger.debug(f"设置 {len(self.hooks)} 个 Hook Providers")
 
-        # 步骤 6: 设置执行超时
-        builder.set_execution_timeout(self.execution_timeout)
-        logger.debug(f"设置执行超时: {self.execution_timeout} 秒")
+        if self.execution_timeout:
+            builder.set_execution_timeout(self.execution_timeout)
 
-        # 步骤 7: 构建 Graph
+        if self.session_manager:
+            builder.set_session_manager(self.session_manager)
+
         graph = builder.build()
-        logger.info(f"Graph 构建完成: {graph_spec.name}")
 
         return graph
 

@@ -13,5 +13,20 @@ hatchify:
       schema: fs
       bucket: hatchify
       folder: dev
-      root: storage
+      root: /Users/fenghuanglin/Codes/hatchify/storage
+  session-manager:
+    manager: file
+    file:
+      folder: dev
+      root: /Users/fenghuanglin/Codes/hatchify/session
+  db:
+    platform: sqlite
+    sqlite:
+      url: sqlite+aiosqlite:////Users/fenghuanglin/Codes/hatchify/dev.db
+      echo: False
+      pool-pre-ping: True
+      connect-args:
+        check_same_thread: True
+
+
 

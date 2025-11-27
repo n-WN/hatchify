@@ -1,23 +1,27 @@
 from typing import Type, Collection, Any, Optional
 
+from fastapi_pagination import Page
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.business.db.base import T
 from app.business.manager.repository_manager import RepositoryManager
 from app.business.repositories.base.base_repository import BaseRepository
 from app.business.services.base.base_service import BaseService
+from app.business.utils.pagination_utils import CustomParams
 
 
 class GenericService(BaseService[T]):
-
     def __init__(
             self,
             entity_type: Type[T],
             repository_class: Type[BaseRepository[T]]
     ):
-
         super().__init__(entity_type)
-        self._repository = RepositoryManager.get_repository(repository_class)
+        self._repository: BaseRepository[T] = RepositoryManager.get_repository(repository_class)
+
+    @property
+    def repository(self) -> BaseRepository[T]:
+        return self._repository
 
     async def get_by_id(
             self,
@@ -138,3 +142,20 @@ class GenericService(BaseService[T]):
             if commit:
                 await session.rollback()
             raise
+
+    async def get_paginated(
+            self,
+            session: AsyncSession,
+            params: Optional[CustomParams] = None,
+            sort: Optional[str] = None
+    ) -> Page[T]:
+        return await self._repository.paginate(session, params, sort)
+
+    async def get_paginated_list(
+            self,
+            session: AsyncSession,
+            params: Optional[CustomParams] = None,
+            sort: Optional[str] = None,
+            **filters
+    ) -> Page[T]:
+        return await self._repository.paginate_by(session, params, sort, **filters)

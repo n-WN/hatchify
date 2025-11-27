@@ -21,7 +21,7 @@ from strands.types.content import ContentBlock, Message
 from strands.types.event_loop import Usage, Metrics
 from strands.types.tools import ToolUse, ToolResult, ToolResultContent
 
-from app.core.builder.graph_wrapper import GraphWrapper
+from app.core.graph.graph_wrapper import GraphWrapper
 
 _DEFAULT_FUNCTION_ID = "default_function"
 

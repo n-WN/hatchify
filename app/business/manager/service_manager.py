@@ -9,3 +9,10 @@ class ServiceManager:
         if service_class not in cls._instances:
             cls._instances[service_class] = service_class()
         return cls._instances[service_class]
+
+    @classmethod
+    def get_service_dependency(cls, service_class: Type):
+        def provider():
+            return cls.get_service(service_class)
+
+        return provider

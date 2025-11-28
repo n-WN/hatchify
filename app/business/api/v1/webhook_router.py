@@ -1,16 +1,16 @@
 import asyncio
-import json
-import os.path
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Any, Optional, List, Dict
 
-import aiofiles
-from fastapi import APIRouter, Request, HTTPException, UploadFile, Header, Query
+from fastapi import APIRouter, Request, HTTPException, UploadFile, Header, Query, Depends
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import FormData
 from starlette.responses import StreamingResponse
 
-from app.common.constants.constants import Constants
+from app.business.db.session import get_db
+from app.business.manager.service_manager import ServiceManager
+from app.business.services.graph_service import GraphService
 from app.common.domain.entity.graph_execute_data import FileData, GraphExecuteData
 from app.common.domain.entity.graph_spec import GraphSpec
 from app.common.domain.responses.web_hook import WebHookInfoResponse, ExecutionResponse
@@ -28,24 +28,6 @@ from app.core.utils.webhook_utils import infer_webhook_spec_from_schema
 
 settings = get_hatchify_settings()
 webhook_router = APIRouter(prefix="/webhooks")
-
-GRAPH_REGISTRY: Dict[str, GraphSpec] = {}
-
-
-async def load_graph_from_json(json_path: str) -> GraphSpec:
-    async with aiofiles.open(json_path, "r", encoding="utf-8") as f:
-        content = await f.read()
-        data = json.loads(content)
-    return GraphSpec(**data)
-
-
-async def register_graph(graph_name: str, json_path: str):
-    graph_spec = await load_graph_from_json(json_path)
-    GRAPH_REGISTRY[graph_name] = graph_spec
-
-
-async def init_graph_registry():
-    await register_graph("gid_1", os.path.join(Constants.Path.GRAPH_JSONS, "pdf_analysis_system.json"))
 
 
 async def prepare_data(graph_id: str, graph_spec: GraphSpec, request: Request):
@@ -82,10 +64,12 @@ async def prepare_data(graph_id: str, graph_spec: GraphSpec, request: Request):
 async def invoke(
         graph_id: str,
         request: Request,
+        session: AsyncSession = Depends(get_db),
+        service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),
 ):
     result_dict = {}
     session_id = uuid.uuid4().hex
-    graph_spec = GRAPH_REGISTRY.get(graph_id)
+    graph_spec = await service.get_graph_spec(session, graph_id)
     if not graph_spec:
         return Result.failed(code=404, message=f"Graph '{graph_id}' not found")
 
@@ -122,8 +106,10 @@ async def invoke(
 async def submit(
         graph_id: str,
         request: Request,
+        session: AsyncSession = Depends(get_db),
+        service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),
 ):
-    graph_spec = GRAPH_REGISTRY.get(graph_id)
+    graph_spec = await service.get_graph_spec(session, graph_id)
     if not graph_spec:
         return Result.failed(code=404, message=f"Graph '{graph_id}' not found")
 
@@ -193,9 +179,13 @@ async def stream(
 
 
 @webhook_router.get("/webhook-info/{graph_id}", response_model=Result[WebHookInfoResponse])
-async def get_webhook_info(graph_id: str):
+async def get_webhook_info(
+        graph_id: str,
+        session: AsyncSession = Depends(get_db),
+        service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),
+):
     try:
-        graph_spec = GRAPH_REGISTRY.get(graph_id)
+        graph_spec = await service.get_graph_spec(session, graph_id)
         if not graph_spec:
             raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
 

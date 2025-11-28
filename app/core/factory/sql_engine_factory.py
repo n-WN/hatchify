@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.common.domain.enums.db_type import DatabasePlatform
@@ -17,4 +19,5 @@ def create_sql_engine():
                 echo=sqlite_cfg.echo,
                 pool_pre_ping=sqlite_cfg.pool_pre_ping,
                 connect_args=sqlite_cfg.connect_args,
+                json_serializer=lambda obj: json.dumps(obj, ensure_ascii=False),
             )

@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from strands.types.content import Messages
 
 from app.common.domain.requests.base import BasePageRequest
+from app.common.domain.enums.conversation_mode import ConversationMode
 
 
 class PageGraphRequest(BasePageRequest):
@@ -29,3 +30,7 @@ class UpdateGraphRequest(BaseModel):
 
 class ConversationRequest(BaseModel):
     messages: Messages
+    mode: ConversationMode = Field(
+        default=ConversationMode.EDIT,
+        description="对话模式：chat（不修改）或 edit（生成并覆盖 spec）"
+    )

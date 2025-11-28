@@ -1,10 +1,7 @@
-"""Graph 生成的 LLM Prompts
-
-支持 GENERAL Agent、Router 和 Orchestrator
-"""
+from textwrap import dedent
 
 # 第一步：生成 Graph 架构
-GRAPH_GENERATOR_SYSTEM_PROMPT = (
+GRAPH_GENERATOR_SYSTEM_PROMPT = dedent(
     "You are a 'Graph Architect' AI. You will design a complete Graph workflow by providing a single, valid JSON object and nothing else. "
     "The system can contain both AI-powered 'agents' and deterministic 'functions' for data handling. Follow these critical rules precisely.\n\n"
 
@@ -62,8 +59,10 @@ GRAPH_GENERATOR_SYSTEM_PROMPT = (
     "   - entry_point: The first node to execute\n"
     "   - For orchestrator patterns, the orchestrator agent should be the entry point. For sequential patterns, start with the logical first step. For router patterns, create edges from the router to ALL potential downstream targets.\n\n"
 
-    "10. **Graph Connectivity**: ALL nodes in your workflow must be part of a single, connected graph. No isolated/orphaned nodes are allowed.\n\n"
+    "10. **Graph Connectivity**: ALL nodes in your workflow must be part of a single, connected graph. No isolated/orphaned nodes are allowed."
+)
 
+RESOURCE_MESSAGE = dedent(
     "## Available Models:\n"
     "{available_models}\n\n"
 
@@ -73,11 +72,7 @@ GRAPH_GENERATOR_SYSTEM_PROMPT = (
     "## Available Functions (for Graph):\n"
     "{available_functions}\n"
 )
-
-GRAPH_GENERATOR_USER_PROMPT = (
-    "\n**User Requirement:**\n---\n"
-    "{user_description}\n---\n\n"
-
+GRAPH_GENERATOR_USER_PROMPT = dedent(
     "Design the complete Graph workflow. Analyze the requirements to determine the optimal orchestration pattern and input type.\n"
     "Output your response in this EXACT JSON format, including all fields.\n\n"
     "```json\n"
@@ -189,8 +184,32 @@ GRAPH_GENERATOR_USER_PROMPT = (
     "- Format: 'You must output: {{\"next_node\": \"AgentName\", ...}}'\n"
 )
 
+GRAPH_REFINEMENT_SYSTEM_PROMPT = dedent(
+    "You are a 'Graph Architect' AI refining an existing Graph workflow using the same GraphArchitectureOutput JSON structure as the generation step.\n\n"
+
+    "Treat the provided graph spec as the baseline. Apply only the user-requested changes; keep everything else intact. If no changes are requested, return the current spec unchanged.\n\n"
+
+    "## CRITICAL REFINEMENT RULES:\n"
+    "1. PRESERVE EXISTING STRUCTURE: Keep agents, functions, nodes, edges, and input_schema untouched unless explicitly requested.\n"
+    "2. INCREMENTAL CHANGES ONLY: Add, modify, or remove components only when the refinement request calls for it.\n"
+    "3. MAINTAIN STABILITY: Preserve names and connections; reuse existing agent/function names when updating instructions or tools.\n"
+    "4. COMPLETE SPECIFICATION: Always return the full graph object (name, description, agents, functions, nodes, edges, entry_point, input_schema), including unchanged components.\n"
+    "5. PRESERVE ENTRY POINT: Do not change entry_point unless explicitly requested.\n"
+    "6. INPUT SCHEMA: Update only when necessary; mark file upload fields with \"format\": \"binary\".\n"
+    "7. AGENT INSTRUCTIONS: Each agent instruction must describe the expected JSON output; router/orchestrator instructions must list routing targets and require a `next_node` field in their outputs.\n"
+    "8. ROUTER/ORCHESTRATOR RULES: category must be \"router\" or \"orchestrator\" when applicable; routers need 2+ outgoing edges; orchestrators can output {{\"next_node\": \"COMPLETE\"}} to finish.\n"
+    "9. CONNECTIVITY: Keep the graph connected; avoid orphaned nodes.\n"
+    "10. FORMAT: Output must follow the GraphArchitectureOutput structure used in the generation step.\n"
+)
+
+GRAPH_REFINEMENT_USER_PROMPT = dedent(
+    "Refine the existing graph below according to the user's new instructions while keeping unspecified parts unchanged.\n\n"
+    "Current Graph Spec:\n"
+    "{current_graph_spec}"
+)
+
 # 第二步：从 instructions 提取 Schema
-SCHEMA_EXTRACTOR_PROMPT = (
+SCHEMA_EXTRACTOR_PROMPT = dedent(
     "\n**Graph Specification:**\n---\n"
     "{graph_spec}\n---\n\n"
 

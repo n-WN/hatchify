@@ -3,12 +3,13 @@
 使用 Instructor + LiteLLM 生成结构化的 JSON 输出，支持自动重试和错误修正。
 """
 
-from typing import Type, TypeVar, List, Dict, Any, Union, Iterable
+from typing import Type, TypeVar, List, Dict, Any, Union, Iterable, Optional, Tuple
 
 import instructor
 from instructor import Partial
 from litellm import acompletion
 from litellm.types.completion import ChatCompletionMessageParam
+from litellm.types.utils import ModelResponse, Usage
 from pydantic import BaseModel
 
 from app.core.manager.model_card_manager import model_card_manager
@@ -23,8 +24,9 @@ async def json_generator(
         response_model: Type[T],
         mode: instructor.Mode = instructor.Mode.JSON,
         max_retries: int = 3,
+        return_usage: bool = False,
         **kwargs: Any,
-) -> T:
+) -> Tuple[T, Optional[Usage]]:
     """
     生成结构化 JSON 输出。
 
@@ -37,10 +39,11 @@ async def json_generator(
         response_model: Pydantic 模型类
         mode: Instructor 模式（默认 JSON mode，兼容性最好）
         max_retries: 最大重试次数（默认 3 次）
+        return_usage: 是否同时返回 token 用量信息 (tuple: model, usage)
         **kwargs: 其他 LiteLLM 参数
 
     Returns:
-        验证后的 Pydantic 模型实例
+        验证后的 Pydantic 模型实例；如果 return_usage=True，返回 (model, usage)
 
     Example:
         ```python
@@ -58,6 +61,7 @@ async def json_generator(
         )
         ```
     """
+    usage: Optional[Usage] = None
     # 获取配置
     model_card = model_card_manager.find_model(model_id, provider_id)
     provider_card = model_card_manager.get_active_provider(model_card.provider_id)
@@ -81,7 +85,16 @@ async def json_generator(
         messages=messages,
         response_model=response_model,
         max_retries=max_retries,
+        return_usage=True,
         **call_kwargs,
     )
 
-    return result
+    if not return_usage:
+        return result, usage
+
+
+    raw_response: ModelResponse = getattr(result, "_raw_response", None)
+    if raw_response is not None:
+        usage: Usage = getattr(raw_response, "usage", None)
+
+    return result, usage

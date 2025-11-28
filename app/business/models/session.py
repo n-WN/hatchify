@@ -7,10 +7,12 @@ from sqlalchemy import (
     String,
     DateTime,
     func,
+    Enum,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.business.db.base import Base
+from app.common.domain.enums.session_scene import SessionScene
 
 
 class SessionTable(Base):
@@ -26,6 +28,13 @@ class SessionTable(Base):
         String(36),
         nullable=False,
         index=True,
+    )
+
+    # 用途场景：区分 graph 编辑 / 基于 graph 的网站生成等
+    scene: Mapped[SessionScene] = mapped_column(
+        Enum(SessionScene),
+        nullable=False,
+        default=SessionScene.GRAPH_EDIT,
     )
 
     created_at: Mapped[datetime] = mapped_column(

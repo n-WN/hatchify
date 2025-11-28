@@ -2,10 +2,13 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.common.domain.enums.session_scene import SessionScene
+
 
 class SessionResponse(BaseModel):
     id: str
     graph_id: str
+    scene: SessionScene
     created_at: datetime
     updated_at: datetime
 

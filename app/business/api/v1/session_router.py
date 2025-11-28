@@ -56,6 +56,8 @@ async def page(
         filters = {}
         if list_request.graph_id:
             filters["graph_id"] = list_request.graph_id
+        if list_request.scene:
+            filters["scene"] = list_request.scene
 
         pages: Page[SessionTable] = await service.get_paginated_list(
             session, params, sort=list_request.sort, **filters

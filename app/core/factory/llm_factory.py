@@ -58,7 +58,8 @@ def create_llm_by_model_card(model_card: ModelCard) -> Model:
     if base_url is not None:
         client_args["base_url"] = base_url
 
-    return get_model_by_family(provider_card, model_card, client_args, provider_card.max_tokens)
+    # provider card currently没有 max_tokens 字段，使用模型自身配置
+    return get_model_by_family(provider_card, model_card, client_args, model_card.max_tokens)
 
 
 def create_llm_by_agent_card(agent_card: AgentCard) -> Model:

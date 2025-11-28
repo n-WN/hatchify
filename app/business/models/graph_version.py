@@ -9,7 +9,8 @@ from sqlalchemy import (
     func,
     JSON,
     Integer,
-    UniqueConstraint, Enum,
+    UniqueConstraint,
+    Enum,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,7 +42,10 @@ class GraphVersionTable(Base):
 
     spec: Mapped[dict] = mapped_column(JSON, nullable=False)
 
-    comment: Mapped[Optional[None]] = mapped_column(String(255), nullable=True)
+    comment: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    session_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    message_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -49,5 +53,10 @@ class GraphVersionTable(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("graph_id", "version", name="uq_graph_version_per_graph"),
+        UniqueConstraint(
+            "graph_id",
+            "version",
+            "type",
+            name="uq_graph_version_per_graph_type"
+        ),
     )

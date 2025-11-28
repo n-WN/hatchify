@@ -164,8 +164,14 @@ async def rollback_to_version(
 async def conversation(
         request: ConversationRequest,
         session_id: str = Path(...),
+        session: AsyncSession = Depends(get_db),
         service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),
 ):
-    """通过自然语言对话编辑 Graph（TODO: 实现 LLM 调用）"""
-    # TODO: 实现 LLM 调用逻辑
-    ...
+    """通过自然语言对话编辑 Graph"""
+    try:
+        data = await service.conversation(session, session_id, request)
+        return Result.ok(data=data)
+    except Exception as e:
+        msg = f"{type(e).__name__}: {str(e)}"
+        logger.error(msg, exc_info=True)
+        return Result.failed(code=500, message=msg)

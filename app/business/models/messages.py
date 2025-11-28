@@ -7,8 +7,7 @@ from sqlalchemy import (
     String,
     DateTime,
     func,
-    Text,
-    Enum,
+    Enum, JSON,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,9 +35,20 @@ class MessageTable(Base):
         nullable=False,
     )
 
-    content: Mapped[str] = mapped_column(
-        Text,
+    content: Mapped[list] = mapped_column(
+        JSON,
         nullable=False,
+    )
+
+    token_usage: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    # 用于存储oss key等其他信息
+    meta_data: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

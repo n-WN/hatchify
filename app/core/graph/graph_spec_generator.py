@@ -1,7 +1,9 @@
-from typing import Tuple, Optional, List, Dict
+import json
+from typing import List, Dict, Any, Union, Tuple, Optional
 
 from litellm.types.completion import ChatCompletionSystemMessageParam, \
-    ChatCompletionUserMessageParam
+    ChatCompletionUserMessageParam, ChatCompletionMessageParam
+from litellm.types.utils import Usage
 from loguru import logger
 from strands.tools.decorator import DecoratedFunctionTool
 
@@ -20,7 +22,9 @@ from app.core.manager.model_card_manager import ModelCardManager
 from app.core.prompts.prompts import (
     GRAPH_GENERATOR_SYSTEM_PROMPT,
     GRAPH_GENERATOR_USER_PROMPT,
-    SCHEMA_EXTRACTOR_PROMPT,
+    GRAPH_REFINEMENT_SYSTEM_PROMPT,
+    GRAPH_REFINEMENT_USER_PROMPT,
+    SCHEMA_EXTRACTOR_PROMPT, RESOURCE_MESSAGE,
 )
 from app.core.utils.json_generator import json_generator
 from app.core.utils.schema_utils import generate_output_schema
@@ -77,36 +81,24 @@ class GraphSpecGenerator:
 
     async def generate_graph_spec(
             self,
-            user_description: str,
-            conversation_history: Optional[List[Dict]] = None,
-    ) -> Tuple[GraphSpec, List[Dict]]:
-        """从自然语言描述生成 GraphSpec
-
-        Args:
-            user_description: 用户的任务描述
-            conversation_history: 可选的对话历史（暂未实现 refinement）
-
-        Returns:
-            Tuple of:
-            - GraphSpec: 生成的 Graph 规范对象
-            - List[Dict]: 更新后的对话历史
-
-        Raises:
-            ValueError: LLM 返回的数据格式不正确
-        """
+            pre_graph_spec: Dict[str, Any],
+            user_messages: List[Dict[str, Any]],
+            history_messages: List[Dict[str, Any]]
+    ) -> GraphSpec:
         logger.info("开始生成 GraphSpec")
 
         # Step 1: 调用 LLM 生成 Graph 架构
-        graph_arch, messages = await self._generate_graph_architecture(
-            user_description=user_description,
-            conversation_history=conversation_history,
+        graph_arch, usage = await self._generate_graph_architecture(
+            pre_graph_spec=pre_graph_spec,
+            user_messages=user_messages,
+            history_messages=history_messages
         )
 
         logger.info(f"Step 1 完成: 生成了 {len(graph_arch.agents)} 个 agents, "
                     f"{len(graph_arch.functions)} 个 functions")
 
         # Step 2: 调用 LLM 提取 JSON schemas
-        schemas_output = await self._extract_schemas(graph_arch)
+        schemas_output, usages = await self._extract_schemas(graph_arch)
 
         logger.info(f"Step 2 完成: 提取了 {len(schemas_output.agent_schemas)} 个 schemas")
 
@@ -115,67 +107,80 @@ class GraphSpecGenerator:
 
         logger.info(f"GraphSpec 生成完成: {graph_spec.name}")
 
-        return graph_spec, messages
+        return graph_spec
 
     async def _generate_graph_architecture(
             self,
-            user_description: str,
-            conversation_history: Optional[List[Dict]] = None,
-    ) -> Tuple[GraphArchitectureOutput, List[Dict]]:
+            pre_graph_spec: Dict[str, Any],
+            user_messages: List[Dict[str, Any]],
+            history_messages: List[Dict[str, Any]]
+    ) -> Tuple[GraphArchitectureOutput, Optional[Usage]]:
         """Step 1: 生成 Graph 架构
 
         使用 structured_output 调用 LLM，返回类型安全的 GraphArchitectureOutput
         """
-        # 构建 system prompt
-        system_prompt = GRAPH_GENERATOR_SYSTEM_PROMPT.format(
+        resource_message = RESOURCE_MESSAGE.format(
             available_models=self.model_card_manager.format_models_for_prompt(),
             available_tools=self.tool_router.format_for_prompt(),
             available_functions=self.function_router.format_functions_for_prompt(),
         )
-
-        # 构建 user prompt
-        user_prompt = GRAPH_GENERATOR_USER_PROMPT.format(
-            user_description=user_description
-        )
-
-        logger.info("调用 Spec Generator LLM 生成 Graph 架构...")
-
-        # 使用 json_generator 代替 structured_output（兼容性更好）
-        result = await json_generator(
-            provider_id=self.spec_gen_config.provider,
-            model_id=self.spec_gen_config.model,
-            messages=[
+        messages: List[Union[ChatCompletionMessageParam, Dict[str, Any]]] = [
+            ChatCompletionSystemMessageParam(
+                role="system",
+                content=GRAPH_GENERATOR_SYSTEM_PROMPT
+            ),
+            ChatCompletionSystemMessageParam(
+                role="system",
+                content=resource_message
+            ),
+        ]
+        if pre_graph_spec:
+            messages.append(
                 ChatCompletionSystemMessageParam(
                     role="system",
-                    content=system_prompt
-                ),
+                    content=GRAPH_REFINEMENT_SYSTEM_PROMPT
+                )
+            )
+        messages.extend(history_messages)
+        messages.append(
+            ChatCompletionUserMessageParam(
+                role="user",
+                content=GRAPH_GENERATOR_USER_PROMPT
+            )
+        )
+        if pre_graph_spec:
+            messages.append(
                 ChatCompletionUserMessageParam(
                     role="user",
-                    content=user_prompt
+                    content=GRAPH_REFINEMENT_USER_PROMPT.format(
+                        current_graph_spec=json.dumps(
+                            pre_graph_spec,
+                            ensure_ascii=False,
+                            indent=2
+                        )
+                    )
                 )
-            ],
+            )
+        messages.extend(user_messages)
+        result, usage = await json_generator(
+            provider_id=self.spec_gen_config.provider,
+            model_id=self.spec_gen_config.model,
+            messages=messages,
             response_model=GraphArchitectureOutput,
             max_retries=3,
         )
 
-        # 构建对话历史
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-            {"role": "assistant", "content": result.model_dump_json(indent=2)},
-        ]
-
-        return result, messages
+        return result, usage
 
     async def _extract_schemas(
             self,
             graph_arch: GraphArchitectureOutput,
-    ) -> SchemaExtractionOutput:
+    ) -> Tuple[SchemaExtractionOutput, List[Usage]]:
         """Step 2: 从 agent instructions 提取 JSON schemas
 
         Router/Orchestrator 使用预定义 schema，General Agent 通过 LLM 提取。
         """
-
+        usages = []
         agent_schemas = []
 
         # 分离需要预定义 schema 的 agent 和需要 LLM 提取的 agent
@@ -223,7 +228,7 @@ class GraphSpecGenerator:
             )
 
             # 使用 json_generator - 自动处理 JSON 解析、验证和重试
-            llm_result = await json_generator(
+            llm_result, usage = await json_generator(
                 provider_id=self.spec_ext_config.provider,
                 model_id=self.spec_ext_config.model,
                 messages=[
@@ -241,10 +246,11 @@ class GraphSpecGenerator:
             )
 
             # 合并 LLM 提取的 schemas
+            usages.append(usage)
             agent_schemas.extend(llm_result.agent_schemas)
 
         # 返回完整的 SchemaExtractionOutput
-        return SchemaExtractionOutput(agent_schemas=agent_schemas)
+        return SchemaExtractionOutput(agent_schemas=agent_schemas), usages
 
     def _merge_and_create_spec(
             self,

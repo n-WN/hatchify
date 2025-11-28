@@ -15,7 +15,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.business.api.v1.graph_router import graphs_router
-from app.business.api.v1.webhook_router import init_graph_registry, webhook_router
+from app.business.api.v1.webhook_router import webhook_router
 from app.common.domain.result.result import Result
 from app.common.extensions.ext_storage import init_storage
 from app.common.settings.settings import get_hatchify_settings
@@ -29,7 +29,6 @@ async def initialize_extensions():
         async_load_mcp_server(),
         async_load_strands_tools(),
         init_storage(),
-        init_graph_registry()
     )
 
 

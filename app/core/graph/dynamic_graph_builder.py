@@ -135,7 +135,6 @@ class DynamicGraphBuilder:
             builder.set_session_manager(self.session_manager)
 
         graph = builder.build()
-
         return graph
 
     def _create_agent_node(self, agent_node: AgentNode) -> Any:

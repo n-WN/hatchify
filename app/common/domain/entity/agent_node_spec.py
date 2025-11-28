@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any, Type
 
-from pydantic import Field, BaseModel, computed_field
+from pydantic import Field, BaseModel
 
 from app.common.domain.enums.agent_category import AgentCategory
 from app.utils.json_schema_2_pydantic import jsonschema_to_pydantic
@@ -26,7 +26,6 @@ class AgentNode(BaseModel):
         description="Agent 输出的 JSON Schema"
     )
 
-    @computed_field
     @property
     def structured_output_model(self) -> Optional[Type[BaseModel]]:
         if not self.structured_output_schema:

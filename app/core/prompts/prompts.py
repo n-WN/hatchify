@@ -16,6 +16,7 @@ GRAPH_GENERATOR_SYSTEM_PROMPT = dedent(
     "2. **Agent Instructions**: Every agent MUST have detailed instructions that specify:\n"
     "   - What the agent should do\n"
     "   - What output format it should produce (describe in natural language)\n"
+    "   - Enumerate the JSON fields you will emit so schemas can be extracted and matched to downstream rules/functions\n"
     "   - Example: 'You are an idiom expert. Output the next idiom in JSON format: {{\"idiom\": \"...\", \"explanation\": \"...\"}}'\n\n"
 
     "3. **Model Selection**: Choose from the available models list below.\n\n"
@@ -55,11 +56,20 @@ GRAPH_GENERATOR_SYSTEM_PROMPT = dedent(
 
     "9. **Graph Structure**: Design a clear workflow with:\n"
     "   - nodes: List of ALL node names (agents + functions)\n"
+    "   - The nodes list must exactly equal the union of all agent and function names; no missing or extra placeholders\n"
     "   - edges: Connections between nodes (from_node -> to_node)\n"
     "   - entry_point: The first node to execute\n"
-    "   - For orchestrator patterns, the orchestrator agent should be the entry point. For sequential patterns, start with the logical first step. For router patterns, create edges from the router to ALL potential downstream targets.\n\n"
+    "   - For orchestrator patterns, the orchestrator agent should be the entry point. For sequential patterns, start with the logical first step. For router patterns, create edges from the router to ALL potential downstream targets.\n"
+    "   - Edges can be unconditional, or conditional via either (a) `logic` + `rules` (and/or combining field comparisons) or (b) `jsonlogic` (JSONLogic expression applied to the upstream structured_output). Use `jsonlogic` when you need nested/complex conditions.\n"
+    "   - **Field source for conditions**: condition fields must come from the `structured_output` of the **from_node** (e.g., router/orchestrator output fields).\n"
+    "   - **Supported JSONLogic ops** (if used): var, ==, !=, >, >=, <, <=, and, or, not/!, in, if, regex. Do not rely on other ops.\n"
+    "   - At least one terminal node with **no outgoing edges** is REQUIRED. Final/report/sink nodes must not route back; leave them as terminals so output_schema can be derived.\n\n"
 
-    "10. **Graph Connectivity**: ALL nodes in your workflow must be part of a single, connected graph. No isolated/orphaned nodes are allowed."
+    "10. **Graph Connectivity**: ALL nodes in your workflow must be part of a single, connected graph. No isolated/orphaned nodes are allowed.\n"
+
+    "11. **Use only provided resources**: Use only models/tools/functions from the provided lists. Do NOT invent names that are not listed.\n"
+    "12. **Return to orchestrator when applicable**: In hub-and-spoke patterns, include edges from workers back to the orchestrator, unless the node is terminal.\n"
+    "13. **Response format & validation**: Respond with a single JSON object only (no markdown/code fences). Ensure unique node names, entry_point exists in nodes, every edge references existing nodes, and at least one node has no outgoing edges."
 )
 
 RESOURCE_MESSAGE = dedent(
@@ -98,7 +108,12 @@ GRAPH_GENERATOR_USER_PROMPT = dedent(
     '  "edges": [\n'
     '    {{\n'
     '      "from_node": "string (source node name)",\n'
-    '      "to_node": "string (target node name)"\n'
+    '      "to_node": "string (target node name)",\n'
+    '      "logic": "string (optional: \\"and\\" or \\"or\\"; used with rules; default and)",\n'
+    '      "rules": [\n'
+    '        {{"field": "string (structured_output field name)", "op": "string (==, !=, >, >=, <, <=, in, not_in, contains, not_contains, startswith, endswith, regex, regex_not, between, is_true, is_false, exists, not_exists)", "value": "any"}}\n'
+    '      ],\n'
+    '      "jsonlogic": {{ "and": [{{">=": [{{"var": "score"}}, 7]}}, {{"==": [{{"var": "flag"}}, true]}}] }} (optional, JSONLogic expression; takes precedence over rules; field paths come from source structured_output)\n'
     '    }}\n'
     '  ],\n'
     '  "entry_point": "string (name of the first node to execute)",\n'
@@ -119,6 +134,8 @@ GRAPH_GENERATOR_USER_PROMPT = dedent(
     '  }}\n'
     '}}\n'
     "```\n\n"
+
+    "Respond ONLY with the JSON object above—no explanations or markdown. Before replying, double-check that nodes align with agents/functions, edges reference existing nodes, and entry_point is one of the nodes.\n\n"
 
     "**Input Schema Guidelines**:\n"
     "- Use proper JSON Schema types: string, number, integer, boolean, array, object\n"
@@ -200,12 +217,14 @@ GRAPH_REFINEMENT_SYSTEM_PROMPT = dedent(
     "8. ROUTER/ORCHESTRATOR RULES: category must be \"router\" or \"orchestrator\" when applicable; routers need 2+ outgoing edges; orchestrators can output {{\"next_node\": \"COMPLETE\"}} to finish.\n"
     "9. CONNECTIVITY: Keep the graph connected; avoid orphaned nodes.\n"
     "10. FORMAT: Output must follow the GraphArchitectureOutput structure used in the generation step.\n"
+    "11. OUTPUT ONLY JSON: Return just the JSON graph object—no explanations or markdown.\n"
 )
 
 GRAPH_REFINEMENT_USER_PROMPT = dedent(
     "Refine the existing graph below according to the user's new instructions while keeping unspecified parts unchanged.\n\n"
     "Current Graph Spec:\n"
-    "{current_graph_spec}"
+    "{current_graph_spec}\n\n"
+    "Respond ONLY with the updated GraphArchitectureOutput JSON object."
 )
 
 # 第二步：从 instructions 提取 Schema
@@ -224,7 +243,7 @@ SCHEMA_EXTRACTOR_PROMPT = dedent(
 
     "## Requirements:\n"
     "- Extract schemas ONLY for agents, not functions\n"
-    "- If an agent's instruction doesn't specify output format, generate a simple schema with a 'result' field\n"
+    "- If an agent's instruction doesn't specify output format, generate a simple schema with a single 'result' field (type string)\n"
     "- Use proper JSON Schema types: string, number, integer, boolean, array, object\n"
     "- **Router/Orchestrator agents**: MUST have 'next_node' field with type 'string' in required array\n\n"
 
@@ -237,18 +256,18 @@ SCHEMA_EXTRACTOR_PROMPT = dedent(
     '      "structured_output_schema": {{\n'
     '        "type": "object",\n'
     '        "properties": {{\n'
-    '          "next_node": {{\n'
-    '            "type": "string",\n'
-    '            "description": "Name of the next node to execute (REQUIRED for router/orchestrator)"\n'
-    '          }},\n'
     '          "field_name": {{\n'
     '            "type": "string | number | integer | boolean | array | object",\n'
     '            "description": "string (optional field description)",\n'
     '            "items": {{...}} (only if type is array),\n'
     '            "properties": {{...}} (only if type is object)\n'
+    '          }},\n'
+    '          "next_node": {{\n'
+    '            "type": "string",\n'
+    '            "description": "Name of the next node to execute (include ONLY for router/orchestrator)"\n'
     '          }}\n'
     '        }},\n'
-    '        "required": ["next_node", "field_name"]\n'
+    '        "required": ["field_name"] (add \"next_node\" to required IF category is router/orchestrator)\n'
     '      }}\n'
     '    }}\n'
     '  ]\n'
@@ -256,8 +275,8 @@ SCHEMA_EXTRACTOR_PROMPT = dedent(
     "```\n\n"
     "**Important Notes**:\n"
     "- Each property in `properties` must have at least a `type` field\n"
-    "- The `properties` object must contain at least one field (cannot be empty)\n"
+    "- If the instruction is vague, fall back to a single 'result' field (type string)\n"
     "- Use `description` to explain what each field represents\n"
     "- Only include `items` if the type is 'array', and `properties` if the type is 'object'\n"
-    "- **CRITICAL for Router/Orchestrator**: 'next_node' MUST be in the 'required' array\n"
+    "- **CRITICAL for Router/Orchestrator**: Include 'next_node' and add it to 'required'; for general agents, do NOT include 'next_node'\n"
 )

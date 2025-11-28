@@ -146,23 +146,24 @@ class GraphSpecGenerator(BaseStreamHandler):
         agents_needing_llm = []
 
         for agent in graph_arch.agents:
-            # 尝试获取预定义 schema
-            predefined_schema = get_predefined_schema(agent.category)
-
-            if predefined_schema:
-                # 使用预定义 schema
-                agent_schemas.append(
-                    AgentSchema(
-                        agent_name=agent.name,
-                        structured_output_schema=predefined_schema
-                    )
-                )
-                logger.info(
-                    f"Using predefined schema for {agent.category} agent: {agent.name}"
-                )
-            else:
-                # 需要 LLM 提取
-                agents_needing_llm.append(agent)
+            agents_needing_llm.append(agent)
+            # # 尝试获取预定义 schema
+            # predefined_schema = get_predefined_schema(agent.category)
+            #
+            # if predefined_schema:
+            #     # 使用预定义 schema
+            #     agent_schemas.append(
+            #         AgentSchema(
+            #             agent_name=agent.name,
+            #             structured_output_schema=predefined_schema
+            #         )
+            #     )
+            #     logger.info(
+            #         f"Using predefined schema for {agent.category} agent: {agent.name}"
+            #     )
+            # else:
+            #     # 需要 LLM 提取
+            #     agents_needing_llm.append(agent)
 
         # 如果有需要 LLM 提取的 agent，调用 LLM
         if agents_needing_llm:
@@ -282,6 +283,7 @@ class GraphSpecGenerator(BaseStreamHandler):
             )
         except Exception as e:
             logger.error(f"生成 output_schema 失败: {e}", exc_info=True)
+            raise e
 
         return graph_spec
 
@@ -403,7 +405,7 @@ class GraphSpecGenerator(BaseStreamHandler):
                     type="result",
                     data=ResultEvent(
                         data={
-                            "graph_id": self.source_id,
+                            "graph_id": graph_obj.id,
                             "spec": graph_spec.model_dump(),
                         }
                     ),
@@ -417,13 +419,12 @@ class GraphSpecGenerator(BaseStreamHandler):
                         "name": graph_spec.name,
                         "description": graph_spec.description,
                     }
-                    updated = await service.update_by_id(
+                    await service.update_by_id(
                         session,
                         cast(str, graph_obj.id),
                         update_data,
                         commit=False,
                     )
-                    graph_obj = updated or graph_obj
 
                 # write record
                 yield StreamEvent(

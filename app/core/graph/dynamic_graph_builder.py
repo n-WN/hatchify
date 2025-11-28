@@ -1,5 +1,5 @@
+import re
 from typing import Optional, Dict, Any, cast, List, Callable
-
 from loguru import logger
 from strands.agent import AgentResult
 from strands.hooks import HookProvider
@@ -11,7 +11,7 @@ from strands.types.tools import AgentTool
 from app.common.domain.entity.agent_card import AgentCard
 from app.common.domain.entity.agent_node_spec import AgentNode
 from app.common.domain.entity.function_node_spec import FunctionNode
-from app.common.domain.entity.graph_spec import GraphSpec
+from app.common.domain.entity.graph_spec import GraphSpec, ConditionRule, Edge
 from app.common.domain.enums.agent_category import AgentCategory
 from app.common.domain.enums.session_manager_type import SessionManagerType
 from app.core.graph.graph_wrapper import GraphBuilderAdapter
@@ -106,14 +106,20 @@ class DynamicGraphBuilder:
 
             from_agent_spec = self._get_agent_spec_by_name(graph_spec, edge.from_node)
 
-            if from_agent_spec and from_agent_spec.category == AgentCategory.ROUTER:
-                condition = self._create_router_condition(edge.from_node, edge.to_node)
-                builder.add_edge(edge.from_node, edge.to_node, condition=condition)
+            condition = None
 
+            # 优先使用自定义规则/JSONLogic 条件
+            if edge.jsonlogic:
+                condition = self._create_jsonlogic_condition(edge, from_agent_spec)
+            elif edge.rules:
+                condition = self._create_rules_condition(edge, from_agent_spec)
+            elif from_agent_spec and from_agent_spec.category == AgentCategory.ROUTER:
+                condition = self._create_router_condition(edge.from_node, edge.to_node)
             elif from_agent_spec and from_agent_spec.category == AgentCategory.ORCHESTRATOR:
                 condition = self._create_orchestrator_condition(edge.from_node, edge.to_node)
-                builder.add_edge(edge.from_node, edge.to_node, condition=condition)
 
+            if condition:
+                builder.add_edge(edge.from_node, edge.to_node, condition=condition)
             else:
                 builder.add_edge(edge.from_node, edge.to_node)
 
@@ -293,6 +299,255 @@ class DynamicGraphBuilder:
             if agent_node.name == node_name:
                 return agent_node
         return None
+
+    @staticmethod
+    def _apply_jsonlogic(expr: Any, data: Dict[str, Any]) -> Any:
+        """最小实现的 JSONLogic 解析，覆盖常用运算符"""
+
+        def get_var(path: Any, default: Any = None) -> Any:
+            if path is None:
+                return data
+            if not isinstance(path, str):
+                return data.get(path, default)
+            cur = data
+            for key in path.split("."):
+                if isinstance(cur, dict) and key in cur:
+                    cur = cur[key]
+                else:
+                    return default
+            return cur
+
+        def resolve(val: Any) -> Any:
+            if isinstance(val, dict):
+                return eval_expr(val)
+            if isinstance(val, list):
+                return [resolve(v) for v in val]
+            return val
+
+        def eval_expr(obj: Any) -> Any:
+            if not isinstance(obj, dict) or len(obj) != 1:
+                return obj
+            op, args = next(iter(obj.items()))
+            if not isinstance(args, list):
+                args = [args]
+
+            if op in {"var"}:
+                path = args[0] if args else None
+                default = args[1] if len(args) > 1 else None
+                return get_var(path, default)
+
+            if op in {"==", "eq"}:
+                a, b = resolve(args[0]), resolve(args[1])
+                return a == b
+            if op in {"!=", "neq"}:
+                a, b = resolve(args[0]), resolve(args[1])
+                return a != b
+            if op in {">", "gt"}:
+                a, b = resolve(args[0]), resolve(args[1])
+                return a > b
+            if op in {">=", "gte"}:
+                a, b = resolve(args[0]), resolve(args[1])
+                return a >= b
+            if op in {"<", "lt"}:
+                a, b = resolve(args[0]), resolve(args[1])
+                return a < b
+            if op in {"<=", "lte"}:
+                a, b = resolve(args[0]), resolve(args[1])
+                return a <= b
+            if op in {"!", "not"}:
+                return not bool(resolve(args[0]))
+            if op == "and":
+                return all(bool(resolve(arg)) for arg in args)
+            if op == "or":
+                return any(bool(resolve(arg)) for arg in args)
+            if op == "in":
+                a, b = resolve(args[0]), resolve(args[1])
+                try:
+                    return a in b
+                except Exception as e:
+                    logger.warning(f"{type(e).__name__}: {e}")
+                    return False
+            if op == "if":
+                # args: [cond1, val1, cond2, val2, ..., else]
+                pairs = list(zip(args[0::2], args[1::2]))
+                for cond, val in pairs[:-1]:
+                    if bool(resolve(cond)):
+                        return resolve(val)
+                if len(args) % 2 == 1:
+                    # last default
+                    return resolve(args[-1])
+                # even number: evaluate last pair
+                cond, val = pairs[-1]
+                return resolve(val) if bool(resolve(cond)) else None
+            if op == "regex":
+                pattern = resolve(args[0])
+                target = resolve(args[1])
+                return (
+                        isinstance(pattern, str)
+                        and isinstance(target, str)
+                        and re.search(pattern, target) is not None
+                )
+
+            # 未支持的运算符，直接返回 False
+            logger.warning(f"JSONLogic 未支持的运算符 '{op}'")
+            return False
+
+        return eval_expr(expr)
+
+    @staticmethod
+    def _create_jsonlogic_condition(edge: Edge, from_agent_spec: Optional[AgentNode]) -> Callable[[GraphState], bool]:
+        """使用 JSONLogic 表达式创建条件函数"""
+
+        def condition(state: GraphState) -> bool:
+            node_result = state.results.get(edge.from_node)
+            if not node_result:
+                return False
+
+            agent_result = node_result.result
+            if not isinstance(agent_result, AgentResult):
+                return False
+
+            structured_output = agent_result.structured_output
+            if not structured_output:
+                logger.warning(
+                    f"节点 '{edge.from_node}' 没有 structured_output，无法应用 JSONLogic 路由"
+                )
+                return False
+
+            output = structured_output.model_dump()
+
+            # Orchestrator COMPLETE 信号直接终止
+            if (
+                    from_agent_spec
+                    and from_agent_spec.category == AgentCategory.ORCHESTRATOR
+                    and isinstance(output.get("next_node"), str)
+                    and output.get("next_node").upper() == "COMPLETE"
+            ):
+                logger.info(
+                    f"Orchestrator '{edge.from_node}' 发出 COMPLETE 信号，跳过边 {edge.from_node} -> {edge.to_node}"
+                )
+                return False
+
+            try:
+                decision = bool(DynamicGraphBuilder._apply_jsonlogic(edge.jsonlogic, output))
+                if decision:
+                    logger.debug(
+                        f"JSONLogic 命中，from='{edge.from_node}' -> to='{edge.to_node}', expr={edge.jsonlogic}"
+                    )
+                return decision
+            except Exception as exc:
+                logger.warning(
+                    f"JSONLogic 计算失败: expr={edge.jsonlogic}, output={output}",
+                    exc_info=exc
+                )
+                return False
+
+        return condition
+
+    @staticmethod
+    def _create_rules_condition(edge: Edge, from_agent_spec: Optional[AgentNode]) -> Callable[[GraphState], bool]:
+        """根据 Edge.rules 构造条件函数，支持 and/or 组合"""
+        logic = (edge.logic or "and").lower()
+        if logic not in {"and", "or"}:
+            logger.warning(f"未知逻辑运算符 '{edge.logic}'，使用 'and' 代替")
+            logic = "and"
+
+        def eval_rule(rule: ConditionRule, output: Dict[str, Any]) -> bool:
+            left = output.get(rule.field)
+            right = rule.value
+            op = (rule.op or "").lower()
+
+            handlers: Dict[str, Callable[[Any, Any], bool]] = {
+                "==": lambda l, r: l == r,
+                "eq": lambda l, r: l == r,
+                "!=": lambda l, r: l != r,
+                "neq": lambda l, r: l != r,
+                ">": lambda l, r: l is not None and r is not None and l > r,
+                "gt": lambda l, r: l is not None and r is not None and l > r,
+                ">=": lambda l, r: l is not None and r is not None and l >= r,
+                "gte": lambda l, r: l is not None and r is not None and l >= r,
+                "<": lambda l, r: l is not None and r is not None and l < r,
+                "lt": lambda l, r: l is not None and r is not None and l < r,
+                "<=": lambda l, r: l is not None and r is not None and l <= r,
+                "lte": lambda l, r: l is not None and r is not None and l <= r,
+                "in": lambda l, r: r is not None and l in r,
+                "not_in": lambda l, r: r is None or l not in r,
+                "contains": lambda l, r: l is not None and r in l,
+                "not_contains": lambda l, r: l is None or r not in l,
+                "startswith": lambda l, r: isinstance(l, str) and isinstance(r, str) and l.startswith(r),
+                "endswith": lambda l, r: isinstance(l, str) and isinstance(r, str) and l.endswith(r),
+                "regex": lambda l, r: isinstance(l, str) and isinstance(r, str) and re.search(r, l) is not None,
+                "regex_not": lambda l, r: isinstance(l, str) and isinstance(r, str) and re.search(r, l) is None,
+                "between": lambda l, r: (
+                        l is not None
+                        and isinstance(r, (list, tuple))
+                        and len(r) == 2
+                        and r[0] <= l <= r[1]
+                ),
+                "is_true": lambda l, _: bool(l) is True,
+                "is_false": lambda l, _: bool(l) is False,
+                "exists": lambda l, _: l is not None,
+                "not_exists": lambda l, _: l is None,
+            }
+
+            try:
+                handler = handlers.get(op)
+                if not handler:
+                    logger.warning(f"不支持的比较运算符 '{rule.op}'")
+                    return False
+                return handler(left, right)
+            except Exception as exc:
+                logger.warning(
+                    f"规则计算失败：field={rule.field}, op={rule.op}, value={rule.value}, left={left}",
+                    exc_info=exc
+                )
+                return False
+
+        def condition(state: GraphState) -> bool:
+            node_result = state.results.get(edge.from_node)
+            if not node_result:
+                return False
+
+            agent_result = node_result.result
+            if not isinstance(agent_result, AgentResult):
+                return False
+
+            structured_output = agent_result.structured_output
+            if not structured_output:
+                logger.warning(
+                    f"节点 '{edge.from_node}' 没有 structured_output，无法应用规则路由"
+                )
+                return False
+
+            output = structured_output.model_dump()
+
+            # Orchestrator COMPLETE 信号直接终止
+            if (
+                    from_agent_spec
+                    and from_agent_spec.category == AgentCategory.ORCHESTRATOR
+                    and isinstance(output.get("next_node"), str)
+                    and output.get("next_node").upper() == "COMPLETE"
+            ):
+                logger.info(
+                    f"Orchestrator '{edge.from_node}' 发出 COMPLETE 信号，跳过边 {edge.from_node} -> {edge.to_node}"
+                )
+                return False
+
+            rules = edge.rules or []
+            if not rules:
+                return True
+
+            results = [eval_rule(rule, output) for rule in rules]
+            decision = any(results) if logic == "or" else all(results)
+
+            if decision:
+                logger.debug(
+                    f"规则命中，from='{edge.from_node}' -> to='{edge.to_node}', logic={logic}, rules={rules}"
+                )
+
+            return decision
+
+        return condition
 
     @staticmethod
     def _create_router_condition(router_name: str, target_node: str) -> Callable[[GraphState], bool]:

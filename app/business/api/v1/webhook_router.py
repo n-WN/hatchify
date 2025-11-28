@@ -20,7 +20,7 @@ from app.core.factory.session_manager_factory import create_session_manager
 from app.core.graph.dynamic_graph_builder import DynamicGraphBuilder
 from app.core.graph.graph_executor import GraphExecutor
 from app.core.hooks.graph_state_hook import GraphStateHook
-from app.core.manager.executor_manager import ExecutorManager
+from app.core.manager.executor_manager import StreamManager
 from app.core.manager.function_manager import function_router
 from app.core.manager.tool_manager import tool_factory
 from app.core.utils.webhook_utils import infer_webhook_spec_from_schema
@@ -156,7 +156,7 @@ async def submit(
             graph,
         )
 
-        await ExecutorManager.create(execution_id, executor)
+        await StreamManager.create(execution_id, executor)
 
         await executor.submit_task(execute_data)
 
@@ -174,7 +174,7 @@ async def stream(
         last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
         latest_event_id: Optional[str] = Query(default=None)
 ):
-    executor = await ExecutorManager.get(execution_id)
+    executor = await StreamManager.get(execution_id)
     if not executor:
         raise HTTPException(
             status_code=404,

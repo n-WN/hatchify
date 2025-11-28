@@ -6,10 +6,35 @@ from app.common.domain.entity.agent_node_spec import AgentNode
 from app.common.domain.entity.function_node_spec import FunctionNode
 
 
+class ConditionRule(BaseModel):
+    """单条条件规则定义"""
+    field: str = Field(..., description="要检查的字段名（来自上游节点 structured_output）")
+    op: str = Field(
+        ...,
+        description=(
+            "比较运算符，支持 ==, !=, >, >=, <, <=, in, not_in, contains, not_contains, "
+            "regex, regex_not, startswith, endswith, between, is_true, is_false, exists, not_exists"
+        ),
+    )
+    value: Any = Field(..., description="用于比较的目标值（部分运算符可忽略此值）")
+
+
 class Edge(BaseModel):
     """Graph 边定义"""
     from_node: str = Field(..., description="起始节点名称")
     to_node: str = Field(..., description="目标节点名称")
+    logic: Optional[str] = Field(
+        default=None,
+        description="规则组合逻辑：'and' 或 'or'，不填默认 and"
+    )
+    rules: Optional[List[ConditionRule]] = Field(
+        default=None,
+        description="可选的条件规则列表，用于决定是否穿越该边"
+    )
+    jsonlogic: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="可选的 JSONLogic 表达式，优先于 rules。参考 https://jsonlogic.com/ 规范"
+    )
 
 
 

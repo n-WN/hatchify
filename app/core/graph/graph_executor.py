@@ -123,8 +123,8 @@ class GraphExecutor(BaseStreamHandler):
                     StreamEvent(
                         type="node_handoff",
                         data=NodeHandoffEvent(
-                            to_node_id=event.get("node_id", []),
-                            from_node_id=event.get("from_node_ids", []),
+                            to_node_ids=event.get("to_node_ids", []),
+                            from_node_ids=event.get("from_node_ids", []),
                         )
                     )
                 )

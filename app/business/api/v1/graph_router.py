@@ -1,9 +1,11 @@
-from typing import List
+import uuid
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Header, Query, HTTPException
 from fastapi_pagination import Page
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import StreamingResponse
 
 from app.business.db.session import get_db
 from app.business.manager.service_manager import ServiceManager
@@ -17,13 +19,15 @@ from app.common.domain.requests.graph import (
 )
 from app.common.domain.responses.graph_response import GraphResponse
 from app.common.domain.responses.graph_rollback_response import GraphRollbackResponse
-from app.common.domain.responses.graph_spec_response import GraphSpecResponse
 from app.common.domain.responses.graph_version_response import GraphVersionResponse
 from app.common.domain.responses.pagination import PaginationInfo
+from app.common.domain.responses.web_hook import ExecutionResponse
 from app.common.domain.result.result import Result
 from app.core.graph.graph_spec_generator import GraphSpecGenerator
-from app.core.manager.executor_manager import ExecutorManager
-from app.core.manager.service_manager import ServiceManager as CoreServiceManager
+from app.core.manager.executor_manager import StreamManager
+from app.core.manager.function_manager import function_router
+from app.core.manager.model_card_manager import model_card_manager
+from app.core.manager.tool_manager import tool_factory
 
 graphs_router = APIRouter(prefix="/graphs")
 
@@ -151,18 +155,54 @@ async def rollback_to_version(
         return Result.failed(code=500, message=msg)
 
 
-@graphs_router.post("/conversation/{session_id}")
-async def conversation(
+@graphs_router.post("/conversation/{session_id}", response_model=Result[ExecutionResponse])
+async def submit_stream_conversation(
         request: ConversationRequest,
         session_id: str = Path(...),
-        session: AsyncSession = Depends(get_db),
-        service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),
 ):
-    """通过自然语言对话编辑 Graph"""
+    execution_id = uuid.uuid4().hex
     try:
-        response = await service.conversation(session, session_id, request)
-        return Result.ok(data=response)
+        generator = GraphSpecGenerator(
+            source_id=execution_id,
+            model_card_manager=model_card_manager,
+            tool_router=tool_factory,
+            function_router=function_router,
+        )
+        await StreamManager.create(execution_id, generator)
+        await generator.submit_task(session_id=session_id, request=request)
+        return Result.ok(data=ExecutionResponse(graph_id=session_id, execution_id=execution_id))
     except Exception as e:
-        msg = f"{type(e).__name__}: {str(e)}"
-        logger.error(msg, exc_info=True)
-        return Result.failed(code=500, message=msg)
+        msg = f"{type(e).__name__}: {e}"
+        logger.error(msg)
+        return Result.failed(message=msg)
+
+
+@graphs_router.get("/conversation/stream/{execution_id}")
+async def stream_conversation(
+        execution_id: str = Path(...),
+        last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
+        latest_event_id: Optional[str] = Query(default=None),
+):
+    executor = await StreamManager.get(execution_id)
+    if not executor:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Execution '{execution_id}' not found. It may have expired or been cleaned up."
+        )
+
+    effective_last_id = latest_event_id or last_event_id
+    try:
+        return StreamingResponse(
+            executor.worker(last_event_id=effective_last_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"
+        logger.error(f"Stream error for execution {execution_id}: {msg}")
+        raise HTTPException(status_code=500, detail=msg)

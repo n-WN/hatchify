@@ -19,8 +19,8 @@ class NodeStopEvent(BaseModel):
 
 
 class NodeHandoffEvent(BaseModel):
-    from_node_id: List[str]
-    to_node_id: List[str]
+    from_node_ids: List[str]
+    to_node_ids: List[str]
     type: Literal["node_handoff"] = Field(default="node_handoff", exclude=True)
 
 

@@ -15,6 +15,9 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.business.api.v1.graph_router import graphs_router
+from app.business.api.v1.graph_version_router import graph_versions_router
+from app.business.api.v1.message_router import messages_router
+from app.business.api.v1.session_router import sessions_router
 from app.business.api.v1.webhook_router import webhook_router
 from app.common.domain.result.result import Result
 from app.common.extensions.ext_storage import init_storage
@@ -80,3 +83,6 @@ async def health():
 
 app.include_router(webhook_router, tags=["webhooks"])
 app.include_router(graphs_router, tags=["graphs"])
+app.include_router(graph_versions_router, tags=["graph_versions"])
+app.include_router(messages_router, tags=["messages"])
+app.include_router(sessions_router, tags=["graphs"])

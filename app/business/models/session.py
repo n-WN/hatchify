@@ -7,7 +7,7 @@ from sqlalchemy import (
     String,
     DateTime,
     func,
-    Enum,
+    Enum, Integer,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,6 +28,17 @@ class SessionTable(Base):
         String(36),
         nullable=False,
         index=True,
+    )
+
+    # 分支信息：指向父会话和锚点
+    parent_session_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+        index=True,
+    )
+    fork_from_message_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
     )
 
     # 用途场景：区分 graph 编辑 / 基于 graph 的网站生成等

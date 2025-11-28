@@ -3,18 +3,12 @@ from typing import Optional
 from pydantic import BaseModel, Field
 from strands.types.content import Messages
 
-from app.common.domain.requests.base import BasePageRequest
 from app.common.domain.enums.conversation_mode import ConversationMode
+from app.common.domain.requests.base import BasePageRequest
 
 
 class PageGraphRequest(BasePageRequest):
     ...
-
-
-class AddGraphRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=255, description="图的名称")
-    description: Optional[str] = Field(default=None, description="图的描述")
-    spec: dict = Field(default_factory=dict, description="初始 spec（默认为空字典）")
 
 
 class UpdateGraphRequest(BaseModel):

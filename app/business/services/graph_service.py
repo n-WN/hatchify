@@ -1,5 +1,5 @@
 import mimetypes
-from typing import Optional, cast, Any, Dict, List, Union, get_args, Sequence
+from typing import Optional, cast, Any, Dict, List, Union, get_args, Sequence, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from strands.models.litellm import LiteLLMModel
@@ -42,37 +42,6 @@ class GraphService(GenericService[GraphTable]):
         self._version_repo: GraphVersionRepository = RepositoryManager.get_repository(GraphVersionRepository)
         self._session_repo: SessionRepository = RepositoryManager.get_repository(SessionRepository)
         self._message_repo: MessageRepository = RepositoryManager.get_repository(MessageRepository)
-
-    async def update_by_id(
-            self,
-            session: AsyncSession,
-            entity_id: str,
-            update_data: dict,
-            commit: bool = True
-    ) -> Optional[GraphTable]:
-        """
-        更新 Graph
-        - 如果更新了 spec，current_version_id 会设为 NULL（标记有未保存修改）
-        - 如果只更新 name/description，current_version_id 不变
-        """
-        try:
-            # 如果更新了 spec，则标记为有未保存修改
-            if "spec" in update_data:
-                update_data["current_spec"] = update_data.pop("spec")
-                update_data["current_version_id"] = None
-
-            result = await self._repository.update_by_id(session, entity_id, update_data)
-
-            if commit:
-                await session.commit()
-                if result:
-                    await session.refresh(result)
-
-            return result
-        except Exception as e:
-            if commit:
-                await session.rollback()
-            raise
 
     @staticmethod
     def _normalize_role(role: Union[str | Role | MessageRole]) -> MessageRole:
@@ -140,6 +109,143 @@ class GraphService(GenericService[GraphTable]):
             return None
         return GraphSpec.model_validate(graph_obj.current_spec)
 
+    async def _create_draft_snapshot(
+            self,
+            session: AsyncSession,
+            graph: GraphTable,
+            comment: Optional[str] = None,
+            session_id: Optional[str] = None,
+            message_id: Optional[str] = None,
+            parent_version_id: Optional[int] = None,
+    ) -> GraphVersionTable:
+        """
+        为 Graph 创建草稿快照（最多保留 3 条，超出则删除最早的）
+        - 可选复制来源会话历史，生成分支会话，写入 branch_session_id
+        """
+        drafts = await self._version_repo.list_drafts_by_graph(session, graph.id)
+        while len(drafts) >= 3:
+            oldest = drafts.pop(0)
+            await self._version_repo.delete_by_id(session, oldest.id)
+
+        # 复制来源会话历史（如果有）
+        branched_session = await self._fork_session_with_messages(
+            session=session,
+            graph_id=graph.id,
+            source_session_id=session_id,
+            source_message_id=message_id,
+        )
+        draft = GraphVersionTable(
+            graph_id=graph.id,
+            type=GraphVersionType.DRAFT,
+            version=None,
+            spec=graph.current_spec,
+            comment=comment or "auto-draft",
+            parent_version_id=parent_version_id,
+            branch_session_id=branched_session.id if branched_session else None,
+        )
+        await self._version_repo.save(session, draft)
+        await session.flush()
+        return draft
+
+    async def _fork_session_with_messages(
+            self,
+            session: AsyncSession,
+            graph_id: str,
+            source_session_id: Optional[str],
+            source_message_id: Optional[str],
+    ) -> Optional[SessionTable]:
+        """
+        基于来源会话复制消息，生成新的分支会话。
+        - 如果未提供 source_session_id，则取该 graph 最新的会话
+        - 如果提供 source_message_id，则只复制该消息及之前的消息
+        """
+        resolved_session_id = source_session_id
+        if not resolved_session_id:
+            sessions = await self._session_repo.find_by(
+                session,
+                graph_id=graph_id,
+                limit=1,
+                sort="created_at:desc",
+            )
+            resolved_session_id = sessions[0].id if sessions else None
+
+        if not resolved_session_id:
+            raise ValueError(f"No source session found for graph {graph_id}")
+
+        messages = await self._message_repo.find_by(
+            session,
+            session_id=resolved_session_id,
+            sort="created_at:asc",
+        )
+
+        messages_to_copy: List[MessageTable] = []
+        if source_message_id:
+            for msg in messages:
+                messages_to_copy.append(msg)
+                if msg.id == source_message_id:
+                    break
+            else:
+                raise ValueError(
+                    f"Source message {source_message_id} not found in session {resolved_session_id}"
+                )
+        else:
+            messages_to_copy = list(messages)
+
+        new_session = SessionTable(
+            graph_id=graph_id,
+            parent_session_id=resolved_session_id,
+            fork_from_message_id=source_message_id,
+        )
+        await self._session_repo.save(session, new_session)
+        await session.flush()
+
+        if messages_to_copy:
+            clones = [
+                MessageTable(
+                    session_id=new_session.id,
+                    role=msg.role,
+                    content=msg.content,
+                    token_usage=msg.token_usage,
+                    meta_data=msg.meta_data,
+                )
+                for msg in messages_to_copy
+            ]
+            await self._message_repo.save_all(session, clones)
+            await session.flush()
+
+        return new_session
+
+    async def update_by_id(
+            self,
+            session: AsyncSession,
+            entity_id: str,
+            update_data: dict,
+            commit: bool = True
+    ) -> Optional[GraphTable]:
+        """
+        更新 Graph
+        - 如果更新了 spec，current_version_id 会设为 NULL（标记有未保存修改）
+        - 如果只更新 name/description，current_version_id 不变
+        """
+        try:
+            # 如果更新了 spec，则标记为有未保存修改
+            if "spec" in update_data:
+                update_data["current_spec"] = update_data.pop("spec")
+                update_data["current_version_id"] = None
+
+            result = await self._repository.update_by_id(session, entity_id, update_data)
+
+            if commit:
+                await session.commit()
+                if result:
+                    await session.refresh(result)
+
+            return result
+        except Exception as e:
+            if commit:
+                await session.rollback()
+            raise
+
     async def conversation(
             self,
             session: AsyncSession,
@@ -148,7 +254,8 @@ class GraphService(GenericService[GraphTable]):
     ) -> Dict[str, Any]:
         # TODO 目前仅支持用户文本，暂不支持其他消息类型和二进制内容
         history_db_messages = await self._get_recent_messages(session, session_id)
-        history_messages: List[Dict[str, Any]] = LiteLLMModel.format_request_messages(self._db_messages_to_messages(history_db_messages))
+        history_messages: List[Dict[str, Any]] = LiteLLMModel.format_request_messages(
+            self._db_messages_to_messages(history_db_messages))
         user_messages = LiteLLMModel.format_request_messages(request.messages)
 
         async with transaction(session):
@@ -253,7 +360,7 @@ class GraphService(GenericService[GraphTable]):
             session_id: Optional[str] = None,
             message_id: Optional[str] = None,
             comment: Optional[str] = None,
-            commit: bool = True
+            parent_version_id: Optional[int] = None,
     ) -> GraphVersionTable:
         """
         为 Graph 创建快照版本
@@ -264,92 +371,74 @@ class GraphService(GenericService[GraphTable]):
 
         使用悲观锁防止并发创建相同版本号
         """
-        try:
-            # 1. 获取 Graph（加悲观锁）
+        # 1. 获取 Graph（加悲观锁）
+        async with transaction(session):
+
             graph = await self._repository.get_by_id_with_lock(session, graph_id)
             if not graph:
                 raise ValueError(f"Graph {graph_id} not found")
+
+            # 1.1 确定来源 session（若未传入则取最新会话）
+            source_session_id = session_id
+            if not source_session_id:
+                sessions = await self._session_repo.find_by(
+                    session,
+                    graph_id=graph_id,
+                    limit=1,
+                    sort="created_at:desc",
+                )
+                source_session_id = sessions[0].id if sessions else None
 
             # 2. 计算新的 version 号
             max_version = await self._version_repo.get_max_version_by_graph(
                 session, graph_id
             )
-            new_version = (max_version or 0) + 1
+            new_version_no = (max_version or 0) + 1
 
-            # 3. 创建 GraphVersion
-            version_data = {
-                "graph_id": graph_id,
-                "type": GraphVersionType.SNAPSHOT,
-                "version": new_version,
-                "spec": graph.current_spec,
-                "session_id": session_id,
-                "message_id": message_id,
-                "comment": comment,
-            }
-            new_graph_version = GraphVersionTable(**version_data)
+            # 3. 创建分支会话（复制来源历史）
+            branched_session = await self._fork_session_with_messages(
+                session=session,
+                graph_id=graph_id,
+                source_session_id=source_session_id,
+                source_message_id=message_id,
+            )
+            branch_session_id = branched_session.id if branched_session else None
+
+            # 4. 创建 GraphVersion
+            new_graph_version = GraphVersionTable(
+                graph_id=graph_id,
+                type=GraphVersionType.SNAPSHOT,
+                version=new_version_no,
+                spec=graph.current_spec,
+                parent_version_id=parent_version_id,
+                branch_session_id=branch_session_id,
+                comment=comment,
+            )
             await self._version_repo.save(session, new_graph_version)
             await session.flush()
 
-            # 4. 更新 Graph.current_version_id
+            # 5. 更新 Graph.current_version_id
             await self._repository.update_by_id(
                 session,
                 graph_id,
                 {"current_version_id": new_graph_version.id}
             )
-
-            if commit:
-                await session.commit()
-                await session.refresh(new_graph_version)
-
+            await session.refresh(new_graph_version)
             return new_graph_version
-        except Exception as e:
-            if commit:
-                await session.rollback()
-            raise
-
-    async def _create_draft_snapshot(
-            self,
-            session: AsyncSession,
-            graph: GraphTable,
-            comment: Optional[str] = None,
-            session_id: Optional[str] = None,
-            message_id: Optional[str] = None,
-    ) -> GraphVersionTable:
-        """
-        为 Graph 创建草稿快照（最多保留 3 条，超出则删除最早的）
-        """
-        drafts = await self._version_repo.list_drafts_by_graph(session, graph.id)
-        while len(drafts) >= 3:
-            oldest = drafts.pop(0)
-            await self._version_repo.delete_by_id(session, oldest.id)
-
-        draft = GraphVersionTable(
-            graph_id=graph.id,
-            type=GraphVersionType.DRAFT,
-            version=None,
-            spec=graph.current_spec,
-            comment=comment or "auto-draft",
-            session_id=session_id,
-            message_id=message_id,
-        )
-        await self._version_repo.save(session, draft)
-        await session.flush()
-        return draft
 
     async def rollback_to_version(
             self,
             session: AsyncSession,
             graph_id: str,
             version_id: int,
-            commit: bool = True
-    ) -> GraphTable:
+    ) -> Tuple[GraphTable, Optional[str]]:
         """
         回滚到指定版本
         1. 读取指定 version 的 spec
         2. 更新 Graph.current_spec = 该版本的 spec
         3. 更新 Graph.current_version_id = version_id
         """
-        try:
+        async with transaction(session):
             graph = await self._repository.get_by_id_with_lock(session, graph_id)
             if not graph:
                 raise ValueError(f"Graph {graph_id} not found")
@@ -363,9 +452,6 @@ class GraphService(GenericService[GraphTable]):
                 raise ValueError(
                     f"GraphVersion {version_id} does not belong to Graph {graph_id}"
                 )
-
-            if target_version.type != GraphVersionType.SNAPSHOT:
-                raise ValueError("Only SNAPSHOT versions can be used for rollback")
 
             # 2. 检测当前工作区是否 dirty
             dirty = graph.current_version_id is None
@@ -382,6 +468,7 @@ class GraphService(GenericService[GraphTable]):
                     session=session,
                     graph=graph,
                     comment="auto-draft before rollback",
+                    parent_version_id=graph.current_version_id,
                 )
 
             # 2. 更新 Graph
@@ -394,12 +481,5 @@ class GraphService(GenericService[GraphTable]):
             if not result:
                 raise ValueError(f"Failed to rollback Graph {graph_id}")
 
-            if commit:
-                await session.commit()
-                await session.refresh(result)
-
-            return result
-        except Exception as e:
-            if commit:
-                await session.rollback()
-            raise
+            await session.refresh(result)
+            return result, target_version.branch_session_id

@@ -14,9 +14,10 @@ from app.common.domain.requests.graph import (
     PageGraphRequest,
     UpdateGraphRequest,
     ConversationRequest,
-    AddGraphRequest,
 )
 from app.common.domain.responses.graph_response import GraphResponse
+from app.common.domain.responses.graph_rollback_response import GraphRollbackResponse
+from app.common.domain.responses.graph_spec_response import GraphSpecResponse
 from app.common.domain.responses.graph_version_response import GraphVersionResponse
 from app.common.domain.responses.pagination import PaginationInfo
 from app.common.domain.result.result import Result
@@ -60,22 +61,6 @@ async def page(
         data = [GraphResponse.model_validate(item) for item in pages.items]
         page_info = PaginationInfo.from_fastapi_page(data=data, page_result=pages)
         return Result.ok(data=page_info)
-    except Exception as e:
-        msg = f"{type(e).__name__}: {str(e)}"
-        logger.error(msg)
-        return Result.failed(code=500, message=msg)
-
-
-@graphs_router.post("/add", response_model=Result[GraphResponse])
-async def add(
-        add_request: AddGraphRequest,
-        session: AsyncSession = Depends(get_db),
-        service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),
-):
-    try:
-        add_data = add_request.model_dump(exclude_none=True)
-        response = await service.create(session, add_data)
-        return Result.ok(data=response)
     except Exception as e:
         msg = f"{type(e).__name__}: {str(e)}"
         logger.error(msg)
@@ -142,7 +127,7 @@ async def create_snapshot(
         return Result.failed(code=500, message=msg)
 
 
-@graphs_router.post("/{id}/rollback/{version_id}", response_model=Result[GraphResponse])
+@graphs_router.post("/{id}/rollback/{version_id}", response_model=Result[GraphRollbackResponse])
 async def rollback_to_version(
         _id: str = Path(default=..., alias="id"),
         version_id: int = Path(default=...),
@@ -151,8 +136,11 @@ async def rollback_to_version(
 ):
     """回滚到指定版本"""
     try:
-        graph = await service.rollback_to_version(session, _id, version_id)
-        response = GraphResponse.model_validate(graph)
+        graph, branch_session_id = await service.rollback_to_version(session, _id, version_id)
+        response = GraphRollbackResponse(
+            graph=GraphResponse.model_validate(graph),
+            branch_session_id=branch_session_id,
+        )
         return Result.ok(data=response)
     except Exception as e:
         msg = f"{type(e).__name__}: {str(e)}"
@@ -170,7 +158,8 @@ async def conversation(
     """通过自然语言对话编辑 Graph"""
     try:
         data = await service.conversation(session, session_id, request)
-        return Result.ok(data=data)
+        response = GraphSpecResponse(**data)
+        return Result.ok(data=response)
     except Exception as e:
         msg = f"{type(e).__name__}: {str(e)}"
         logger.error(msg, exc_info=True)

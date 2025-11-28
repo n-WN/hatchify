@@ -12,9 +12,8 @@ class GraphVersionResponse(BaseModel):
     type: GraphVersionType
     spec: dict
     comment: str | None = Field(default=None)
-    session_id: str | None = Field(default=None)
-    message_id: str | None = Field(default=None)
-
+    parent_version_id: int | None = Field(default=None)
+    branch_session_id: str | None = Field(default=None)
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

@@ -60,6 +60,32 @@ async def prepare_data(graph_id: str, graph_spec: GraphSpec, request: Request):
     return execute_data
 
 
+@webhook_router.get("/webhook-info/{graph_id}", response_model=Result[WebHookInfoResponse])
+async def get_webhook_info(
+        graph_id: str,
+        session: AsyncSession = Depends(get_db),
+        service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),
+):
+    try:
+        graph_spec = await service.get_graph_spec(session, graph_id)
+        if not graph_spec:
+            raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+
+        webhook_spec = infer_webhook_spec_from_schema(graph_spec.input_schema)
+        return Result.ok(data=WebHookInfoResponse(
+            graph_id=graph_id,
+            input_type=webhook_spec.input_type,
+            data_fields=webhook_spec.data_fields,
+            file_fields=webhook_spec.file_fields,
+            input_schema=webhook_spec.input_schema,
+            output_schema=graph_spec.output_schema,
+        ))
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"
+        logger.error(msg)
+        return Result.failed(message=msg)
+
+
 @webhook_router.post("/invoke/{graph_id}", response_model=Result[Dict[str, Any]])
 async def invoke(
         graph_id: str,
@@ -176,29 +202,3 @@ async def stream(
         msg = f"{type(e).__name__}: {e}"
         logger.error(f"Stream error for execution {execution_id}: {msg}")
         raise HTTPException(status_code=500, detail=msg)
-
-
-@webhook_router.get("/webhook-info/{graph_id}", response_model=Result[WebHookInfoResponse])
-async def get_webhook_info(
-        graph_id: str,
-        session: AsyncSession = Depends(get_db),
-        service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),
-):
-    try:
-        graph_spec = await service.get_graph_spec(session, graph_id)
-        if not graph_spec:
-            raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
-
-        webhook_spec = infer_webhook_spec_from_schema(graph_spec.input_schema)
-        return Result.ok(data=WebHookInfoResponse(
-            graph_id=graph_id,
-            input_type=webhook_spec.input_type,
-            data_fields=webhook_spec.data_fields,
-            file_fields=webhook_spec.file_fields,
-            input_schema=webhook_spec.input_schema,
-            output_schema=graph_spec.output_schema,
-        ))
-    except Exception as e:
-        msg = f"{type(e).__name__}: {e}"
-        logger.error(msg)
-        return Result.failed(message=msg)

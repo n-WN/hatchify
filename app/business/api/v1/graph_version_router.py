@@ -11,9 +11,7 @@ from app.business.models.graph_version import GraphVersionTable
 from app.business.services.graph_version_service import GraphVersionService
 from app.business.utils.pagination_utils import CustomParams
 from app.common.domain.requests.graph_version import (
-    PageGraphVersionRequest,
-    AddGraphVersionRequest,
-    UpdateGraphVersionRequest,
+    PageGraphVersionRequest
 )
 from app.common.domain.responses.graph_version_response import GraphVersionResponse
 from app.common.domain.responses.pagination import PaginationInfo
@@ -63,42 +61,6 @@ async def page(
         data = [GraphVersionResponse.model_validate(item) for item in pages.items]
         page_info = PaginationInfo.from_fastapi_page(data=data, page_result=pages)
         return Result.ok(data=page_info)
-    except Exception as e:
-        msg = f"{type(e).__name__}: {str(e)}"
-        logger.error(msg)
-        return Result.failed(code=500, message=msg)
-
-
-@graph_versions_router.put("/update_by_id/{id}", response_model=Result[GraphVersionResponse])
-async def update_by_id(
-        update_request: UpdateGraphVersionRequest,
-        _id: int = Path(default=..., alias="id"),
-        session: AsyncSession = Depends(get_db),
-        service: GraphVersionService = Depends(ServiceManager.get_service_dependency(GraphVersionService)),
-):
-    try:
-        update_data = update_request.model_dump(exclude_defaults=True, exclude_none=True)
-        obj_tb: GraphVersionTable = await service.update_by_id(session, _id, update_data)
-        if not obj_tb:
-            return Result.failed(code=500, message="Update GraphVersion Failed")
-        response = GraphVersionResponse.model_validate(obj_tb)
-        return Result.ok(data=response)
-    except Exception as e:
-        msg = f"{type(e).__name__}: {str(e)}"
-        logger.error(msg)
-        return Result.failed(code=500, message=msg)
-
-
-@graph_versions_router.post("/add", response_model=Result[GraphVersionResponse])
-async def add(
-        add_request: AddGraphVersionRequest,
-        session: AsyncSession = Depends(get_db),
-        service: GraphVersionService = Depends(ServiceManager.get_service_dependency(GraphVersionService)),
-):
-    try:
-        add_data = add_request.model_dump(exclude_none=True)
-        response = await service.create(session, add_data)
-        return Result.ok(data=response)
     except Exception as e:
         msg = f"{type(e).__name__}: {str(e)}"
         logger.error(msg)

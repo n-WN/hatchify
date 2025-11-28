@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 from loguru import logger
 
-from app.common.event.stream_event import GraphEvent
+from app.common.event.base_event import StreamEvent
 
 
 class EventStore:
@@ -23,7 +23,7 @@ class EventStore:
             ttl_seconds: 过期时间（秒），900秒
         """
         self.graph_id = graph_id
-        self.events: List[GraphEvent] = []
+        self.events: List[StreamEvent] = []
         self.created_at = datetime.now()
         self.ttl_seconds = ttl_seconds
         self._completed = False
@@ -106,7 +106,7 @@ class EventStore:
         async with cls._lock:
             return list(cls._stores.keys())
 
-    def append(self, event: GraphEvent) -> None:
+    def append(self, event: StreamEvent) -> None:
         """
         追加事件到存储
 
@@ -120,7 +120,7 @@ class EventStore:
             self._completed = True
             logger.debug(f"EventStore marked as completed for graph: {self.graph_id}")
 
-    def get_after(self, last_event_id: Optional[str]) -> List[GraphEvent]:
+    def get_after(self, last_event_id: Optional[str]) -> List[StreamEvent]:
         """
         获取指定事件 ID 之后的所有事件
 
@@ -147,7 +147,7 @@ class EventStore:
         logger.warning(f"last_event_id '{last_event_id}' not found, returning all {len(self.events)} events")
         return self.events.copy()
 
-    def get_all(self) -> List[GraphEvent]:
+    def get_all(self) -> List[StreamEvent]:
         """获取所有事件"""
         return self.events.copy()
 

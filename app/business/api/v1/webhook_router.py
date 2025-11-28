@@ -1,4 +1,3 @@
-import asyncio
 import uuid
 from typing import Any, Optional, List, Dict
 
@@ -155,14 +154,11 @@ async def submit(
         executor = GraphExecutor(
             execution_id,
             graph,
-            enable_reconnect=True,
-            ping_interval=15,
-            event_ttl=900
         )
 
         await ExecutorManager.create(execution_id, executor)
 
-        asyncio.create_task(executor.run_streamed(execute_data))
+        await executor.submit_task(execute_data)
 
         return Result.ok(data=ExecutionResponse(graph_id=graph_id, execution_id=execution_id))
 

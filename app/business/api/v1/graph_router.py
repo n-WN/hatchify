@@ -21,6 +21,9 @@ from app.common.domain.responses.graph_spec_response import GraphSpecResponse
 from app.common.domain.responses.graph_version_response import GraphVersionResponse
 from app.common.domain.responses.pagination import PaginationInfo
 from app.common.domain.result.result import Result
+from app.core.graph.graph_spec_generator import GraphSpecGenerator
+from app.core.manager.executor_manager import ExecutorManager
+from app.core.manager.service_manager import ServiceManager as CoreServiceManager
 
 graphs_router = APIRouter(prefix="/graphs")
 
@@ -157,8 +160,7 @@ async def conversation(
 ):
     """通过自然语言对话编辑 Graph"""
     try:
-        data = await service.conversation(session, session_id, request)
-        response = GraphSpecResponse(**data)
+        response = await service.conversation(session, session_id, request)
         return Result.ok(data=response)
     except Exception as e:
         msg = f"{type(e).__name__}: {str(e)}"

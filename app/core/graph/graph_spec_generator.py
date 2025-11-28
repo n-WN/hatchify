@@ -1,23 +1,40 @@
 import json
-from typing import List, Dict, Any, Union, Tuple, Optional
+from typing import Optional, cast, Any, Dict, List, Union, Tuple
 
 from litellm.types.completion import ChatCompletionSystemMessageParam, \
     ChatCompletionUserMessageParam, ChatCompletionMessageParam
 from litellm.types.utils import Usage
 from loguru import logger
+from strands.models.litellm import LiteLLMModel
 from strands.tools.decorator import DecoratedFunctionTool
+from strands.types.content import ContentBlock, Role
 
+from app.business.db.session import transaction, AsyncSessionLocal
+from app.business.manager.repository_manager import RepositoryManager
+from app.business.manager.service_manager import ServiceManager
+from app.business.models.graph import GraphTable
+from app.business.models.messages import MessageTable
+from app.business.models.session import SessionTable
+from app.business.repositories.session_repository import SessionRepository
+from app.business.services.graph_service import GraphService
 from app.common.domain.entity.agent_node_spec import AgentNode
 from app.common.domain.entity.function_node_spec import FunctionNode
 from app.common.domain.entity.graph_spec import GraphSpec, Edge
+from app.common.domain.enums.conversation_mode import ConversationMode
+from app.common.domain.enums.message_role import MessageRole
+from app.common.domain.enums.session_scene import SessionScene
+from app.common.domain.requests.graph import ConversationRequest
 from app.common.domain.structured_output.graph_generation_output import AgentSchema
 from app.common.domain.structured_output.graph_generation_output import (
     GraphArchitectureOutput,
     SchemaExtractionOutput,
 )
 from app.common.domain.structured_output.pre_defined_schema import get_predefined_schema
+from app.common.event.base_event import StreamEvent, ResultEvent
+from app.common.event.edit_event import PhaseEvent
 from app.common.settings.settings import get_hatchify_settings
 from app.core.factory.tool_factory import ToolRouter
+from app.core.graph.stream_handler import BaseStreamHandler
 from app.core.manager.model_card_manager import ModelCardManager
 from app.core.prompts.prompts import (
     GRAPH_GENERATOR_SYSTEM_PROMPT,
@@ -30,84 +47,26 @@ from app.core.utils.json_generator import json_generator
 from app.core.utils.schema_utils import generate_output_schema
 
 
-class GraphSpecGenerator:
-    """使用 LLM 生成 GraphSpec
-
-    基于自然语言描述，通过两步 LLM 调用生成完整的 GraphSpec：
-    1. 生成 Graph 架构（agents, functions, edges）
-    2. 从 agent instructions 中提取 JSON schemas
-
-    Example:
-        ```python
-        from app.core.manager.tool_manager import tool_factory
-        from app.core.manager.function_manager import function_router
-
-        generator = GraphSpecGenerator(
-            tool_router=tool_factory,
-            function_router=function_router
-        )
-
-        graph_spec = await generator.generate_graph_spec(
-            user_description="创建一个成语接龙的 graph，4个 agent 依次接龙"
-        )
-        ```
-    """
+class GraphSpecGenerator(BaseStreamHandler):
 
     def __init__(
             self,
+            source_id:  str,
             model_card_manager: ModelCardManager,
             tool_router: ToolRouter,
             function_router: ToolRouter[DecoratedFunctionTool],
     ):
-        """初始化 GraphSpecGenerator
-
-        Args:
-            tool_router: Agent 工具路由器（来自 tool_manager）
-            function_router: Function 路由器（来自 function_manager）
-
-        注意：模型配置从 settings.yaml 读取
-        """
+        super().__init__(source_id=source_id)
         self.model_card_manager = model_card_manager
         self.tool_router = tool_router
         self.function_router = function_router
 
-        # 从配置读取模型设置
         settings = get_hatchify_settings()
         if not settings or not settings.models:
-            raise ValueError("配置文件中未找到 models 配置")
+            raise ValueError("No models configuration found in the configuration file")
 
         self.spec_gen_config = settings.models.spec_generator
         self.spec_ext_config = settings.models.spec_generator
-
-    async def generate_graph_spec(
-            self,
-            pre_graph_spec: Dict[str, Any],
-            user_messages: List[Dict[str, Any]],
-            history_messages: List[Dict[str, Any]]
-    ) -> GraphSpec:
-        logger.info("开始生成 GraphSpec")
-
-        # Step 1: 调用 LLM 生成 Graph 架构
-        graph_arch, usage = await self._generate_graph_architecture(
-            pre_graph_spec=pre_graph_spec,
-            user_messages=user_messages,
-            history_messages=history_messages
-        )
-
-        logger.info(f"Step 1 完成: 生成了 {len(graph_arch.agents)} 个 agents, "
-                    f"{len(graph_arch.functions)} 个 functions")
-
-        # Step 2: 调用 LLM 提取 JSON schemas
-        schemas_output, usages = await self._extract_schemas(graph_arch)
-
-        logger.info(f"Step 2 完成: 提取了 {len(schemas_output.agent_schemas)} 个 schemas")
-
-        # Step 3: 合并 schemas 并创建 GraphSpec
-        graph_spec = self._merge_and_create_spec(graph_arch, schemas_output)
-
-        logger.info(f"GraphSpec 生成完成: {graph_spec.name}")
-
-        return graph_spec
 
     async def _generate_graph_architecture(
             self,
@@ -303,7 +262,6 @@ class GraphSpecGenerator:
             )
             edges.append(edge)
 
-        # 创建 GraphSpec（先创建用于后续生成 output_schema）
         graph_spec = GraphSpec(
             name=graph_arch.name,
             description=graph_arch.description,
@@ -312,11 +270,10 @@ class GraphSpecGenerator:
             nodes=graph_arch.nodes,
             edges=edges,
             entry_point=graph_arch.entry_point,
-            input_schema=graph_arch.input_schema,  # 从 LLM 生成的架构中获取
+            input_schema=graph_arch.input_schema,
             output_schema=None,
         )
 
-        # Step 4: 自动生成 output_schema（从终端节点提取）
         try:
             output_schema = generate_output_schema(graph_spec, self.function_router)
             graph_spec.output_schema = output_schema
@@ -327,3 +284,171 @@ class GraphSpecGenerator:
             logger.error(f"生成 output_schema 失败: {e}", exc_info=True)
 
         return graph_spec
+
+    @staticmethod
+    def _normalize_role(role: Union[str | Role | MessageRole]) -> MessageRole:
+        if isinstance(role, MessageRole):
+            return role
+        else:
+            match role:
+                case MessageRole.ASSISTANT.value:
+                    return MessageRole.ASSISTANT
+                # case MessageRole.SYSTEM.value:
+                #     return MessageRole.SYSTEM
+                # case MessageRole.TOOL.value:
+                #     return MessageRole.TOOL
+                case MessageRole.USER.value | _:
+                    return MessageRole.USER
+
+    async def handle_stream_event(self, event: Any):
+        await self.stream_queue.put(event)
+
+    async def submit_task(
+            self,
+            session_id: str,
+            request: ConversationRequest,
+    ):
+        async_generator = self.conversation(session_id, request)
+        await self.run_streamed(async_generator)
+
+    async def conversation(
+            self,
+            session_id: str,
+            request: ConversationRequest,
+    ):
+        async with AsyncSessionLocal() as session:
+
+            yield StreamEvent(
+                type="phase",
+                data=PhaseEvent(phase="prepare", message="Initialization messages"),
+            )
+            service = ServiceManager.get_service(GraphService)
+            session_repo = RepositoryManager.get_repository(SessionRepository)
+
+            # TODO 目前仅支持用户文本，暂不支持其他消息类型和二进制内容
+            history_db_messages = await service.get_recent_messages(session, session_id)
+            history_messages: List[Dict[str, Any]] = LiteLLMModel.format_request_messages(
+                service.db_messages_to_messages(history_db_messages)
+            )
+            user_messages = LiteLLMModel.format_request_messages(request.messages)
+
+            async with transaction(session):
+                yield StreamEvent(
+                    type="phase",
+                    data=PhaseEvent(phase="prepare", message="Prepare the data table"),
+                )
+                session_obj = await session_repo.find_by_id(session, session_id)
+                # create session and graph table
+                if not session_obj:
+                    graph_obj = await service.create(
+                        session,
+                        {
+                            "name": f"graph_{session_id}",
+                            "description": "Auto generated from conversation",
+                            "current_spec": {},
+                        },
+                        commit=False,
+                    )
+                    session_obj = SessionTable(
+                        id=session_id,
+                        graph_id=cast(str, graph_obj.id),
+                        scene=SessionScene.GRAPH_EDIT,
+                    )
+                    await session_repo.save(session, session_obj)
+                else:
+                    graph_obj = await service.get_by_id(session, cast(str, session_obj.graph_id))
+                    if not graph_obj:
+                        graph_obj = await service.create(
+                            session,
+                            {
+                                "name": f"graph_{session_obj.graph_id}_recreated",
+                                "description": "Recreated for missing graph",
+                                "current_spec": {},
+                            },
+                            commit=False,
+                        )
+                        await session_repo.update_by_id(
+                            session,
+                            cast(str, session_obj.id),
+                            {"graph_id": cast(str, graph_obj.id)},
+                        )
+
+                # generate architecture
+                yield StreamEvent(
+                    type="phase",
+                    data=PhaseEvent(phase="generate", message="Generating graph architecture"),
+                )
+                graph_arch, _ = await self._generate_graph_architecture(
+                    pre_graph_spec=cast(Dict[str, Any], graph_obj.current_spec),
+                    user_messages=user_messages,
+                    history_messages=history_messages
+                )
+
+                # extract schemas
+                yield StreamEvent(
+                    type="phase",
+                    data=PhaseEvent(phase="extract", message="Extracting schemas from instructions"),
+                )
+                schemas_output, _ = await self._extract_schemas(graph_arch)
+
+                # merge
+                yield StreamEvent(
+                    type="phase",
+                    data=PhaseEvent(phase="merge", message="Merging architecture and schemas"),
+                )
+                graph_spec = self._merge_and_create_spec(graph_arch, schemas_output)
+
+                # result
+                yield StreamEvent(
+                    type="result",
+                    data=ResultEvent(
+                        data={
+                            "graph_id": self.source_id,
+                            "spec": graph_spec.model_dump(),
+                        }
+                    ),
+                )
+
+                assistant_reply = graph_spec.model_dump_json(indent=2, ensure_ascii=False)
+
+                if request.mode == ConversationMode.EDIT:
+                    update_data: Dict[str, Any] = {
+                        "spec": graph_spec.model_dump(),
+                        "name": graph_spec.name,
+                        "description": graph_spec.description,
+                    }
+                    updated = await service.update_by_id(
+                        session,
+                        cast(str, graph_obj.id),
+                        update_data,
+                        commit=False,
+                    )
+                    graph_obj = updated or graph_obj
+
+                # write record
+                yield StreamEvent(
+                    type="phase",
+                    data=PhaseEvent(phase="record", message="Persisting conversation messages"),
+                )
+                for msg in request.messages:
+                    role: Role = msg.get("role")
+                    normalize_role = self._normalize_role(role)
+                    content: List[ContentBlock] = msg.get("content")
+                    await session_repo.save(
+                        session,
+                        MessageTable(
+                            session_id=cast(str, session_obj.id),
+                            role=normalize_role,
+                            content=content
+                        ),
+                    )
+                await session_repo.save(
+                    session,
+                    MessageTable(
+                        session_id=cast(str, session_obj.id),
+                        role=MessageRole.ASSISTANT,
+                        content=[ContentBlock(text=assistant_reply)],
+                    ),
+                )
+
+                await session.flush()

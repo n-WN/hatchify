@@ -1,9 +1,8 @@
 import mimetypes
-from typing import Optional, cast, Any, Dict, List, Union, get_args, Sequence, Tuple
+from typing import Optional, cast, List, get_args, Sequence, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from strands.models.litellm import LiteLLMModel
-from strands.types.content import ContentBlock, Role, Messages, Message
+from strands.types.content import ContentBlock, Messages, Message
 from strands.types.media import DocumentFormat, VideoFormat, ImageFormat, DocumentContent, ImageContent, VideoContent
 
 from app.business.db.session import transaction
@@ -18,15 +17,7 @@ from app.business.repositories.message_repository import MessageRepository
 from app.business.repositories.session_repository import SessionRepository
 from app.business.services.base.generic_service import GenericService
 from app.common.domain.entity.graph_spec import GraphSpec
-from app.common.domain.enums.conversation_mode import ConversationMode
 from app.common.domain.enums.graph_version_type import GraphVersionType
-from app.common.domain.enums.message_role import MessageRole
-from app.common.domain.enums.session_scene import SessionScene
-from app.common.domain.requests.graph import ConversationRequest
-from app.core.graph.graph_spec_generator import GraphSpecGenerator
-from app.core.manager.function_manager import function_router
-from app.core.manager.model_card_manager import model_card_manager
-from app.core.manager.tool_manager import tool_factory
 
 document_formats = get_args(DocumentFormat)
 image_formats = get_args(ImageFormat)
@@ -37,26 +28,10 @@ class GraphService(GenericService[GraphTable]):
 
     def __init__(self):
         super().__init__(GraphTable, GraphRepository)
-        # 显式标注 repository 类型，让 IDE 知道可以调用 GraphRepository 的方法
         self._repository: GraphRepository = RepositoryManager.get_repository(GraphRepository)
         self._version_repo: GraphVersionRepository = RepositoryManager.get_repository(GraphVersionRepository)
         self._session_repo: SessionRepository = RepositoryManager.get_repository(SessionRepository)
         self._message_repo: MessageRepository = RepositoryManager.get_repository(MessageRepository)
-
-    @staticmethod
-    def _normalize_role(role: Union[str | Role | MessageRole]) -> MessageRole:
-        if isinstance(role, MessageRole):
-            return role
-        else:
-            match role:
-                case MessageRole.ASSISTANT.value:
-                    return MessageRole.ASSISTANT
-                # case MessageRole.SYSTEM.value:
-                #     return MessageRole.SYSTEM
-                # case MessageRole.TOOL.value:
-                #     return MessageRole.TOOL
-                case MessageRole.USER.value | _:
-                    return MessageRole.USER
 
     @staticmethod
     async def clean_strands_messages(messages: Messages):
@@ -72,7 +47,7 @@ class GraphService(GenericService[GraphTable]):
                 if video_content := cast(VideoContent, content.get("video")):
                     content_type = mimetypes.guess_type(cast(str, video_content.get("format")))
 
-    async def _get_recent_messages(
+    async def get_recent_messages(
             self,
             session: AsyncSession,
             session_id: str,
@@ -90,7 +65,7 @@ class GraphService(GenericService[GraphTable]):
         )
 
     @staticmethod
-    def _db_messages_to_messages(db_messages: Sequence[MessageTable]) -> Messages:
+    def db_messages_to_messages(db_messages: Sequence[MessageTable]) -> Messages:
         messages: Messages = []
         for msg in db_messages:
             messages.append(Message(
@@ -241,117 +216,10 @@ class GraphService(GenericService[GraphTable]):
                     await session.refresh(result)
 
             return result
-        except Exception as e:
+        except Exception:
             if commit:
                 await session.rollback()
             raise
-
-    async def conversation(
-            self,
-            session: AsyncSession,
-            session_id: str,
-            request: ConversationRequest,
-    ) -> Dict[str, Any]:
-        # TODO 目前仅支持用户文本，暂不支持其他消息类型和二进制内容
-        history_db_messages = await self._get_recent_messages(session, session_id)
-        history_messages: List[Dict[str, Any]] = LiteLLMModel.format_request_messages(
-            self._db_messages_to_messages(history_db_messages))
-        user_messages = LiteLLMModel.format_request_messages(request.messages)
-
-        async with transaction(session):
-            graph_obj: GraphTable | None = None
-            session_obj = await self._session_repo.find_by_id(session, session_id)
-            generator = GraphSpecGenerator(
-                model_card_manager=model_card_manager,
-                tool_router=tool_factory,
-                function_router=function_router,
-            )
-
-            # create session and graph table
-            if not session_obj:
-                graph_obj = await self.create(
-                    session,
-                    {
-                        "name": f"graph_{session_id}",
-                        "description": "Auto generated from conversation",
-                        "current_spec": {},
-                    },
-                    commit=False,
-                )
-                session_obj = SessionTable(
-                    id=session_id,
-                    graph_id=cast(str, graph_obj.id),
-                    scene=SessionScene.GRAPH_EDIT,
-                )
-                await self._session_repo.save(session, session_obj)
-            else:
-                graph_obj = await self.get_by_id(session, cast(str, session_obj.graph_id))
-                if not graph_obj:
-                    graph_obj = await self.create(
-                        session,
-                        {
-                            "name": f"graph_{session_obj.graph_id}_recreated",
-                            "description": "Recreated for missing graph",
-                            "current_spec": {},
-                        },
-                        commit=False,
-                    )
-                    await self._session_repo.update_by_id(
-                        session,
-                        cast(str, session_obj.id),
-                        {"graph_id": cast(str, graph_obj.id)},
-                    )
-
-            graph_spec = await generator.generate_graph_spec(
-                pre_graph_spec=cast(Dict[str, Any], graph_obj.current_spec),
-                user_messages=user_messages,
-                history_messages=history_messages
-            )
-
-            assistant_reply = graph_spec.model_dump_json(indent=2, ensure_ascii=False)
-
-            if request.mode == ConversationMode.EDIT:
-                update_data: Dict[str, Any] = {
-                    "spec": graph_spec.model_dump(),
-                    "name": graph_spec.name,
-                    "description": graph_spec.description,
-                }
-                updated = await self.update_by_id(
-                    session,
-                    cast(str, graph_obj.id),
-                    update_data,
-                    commit=False,
-                )
-                graph_obj = updated or graph_obj
-
-            # write record
-            for msg in request.messages:
-                role: Role = msg.get("role")
-                normalize_role = self._normalize_role(role)
-                content: List[ContentBlock] = msg.get("content")
-                await self._message_repo.save(
-                    session,
-                    MessageTable(
-                        session_id=cast(str, session_obj.id),
-                        role=normalize_role,
-                        content=content
-                    ),
-                )
-            await self._message_repo.save(
-                session,
-                MessageTable(
-                    session_id=cast(str, session_obj.id),
-                    role=MessageRole.ASSISTANT,
-                    content=[ContentBlock(text=assistant_reply)],
-                ),
-            )
-
-            await session.flush()
-
-        return {
-            "graph_id": cast(str, graph_obj.id),
-            "spec": graph_spec.model_dump()
-        }
 
     async def create_snapshot(
             self,

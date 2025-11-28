@@ -13,14 +13,15 @@ from starlette.responses import StreamingResponse
 from app.common.constants.constants import Constants
 from app.common.domain.entity.graph_execute_data import FileData, GraphExecuteData
 from app.common.domain.entity.graph_spec import GraphSpec
+from app.common.domain.responses.web_hook import WebHookInfoResponse, ExecutionResponse
 from app.common.domain.result.result import Result
 from app.common.extensions.ext_storage import storage_client
 from app.common.settings.settings import get_hatchify_settings
 from app.core.factory.session_manager_factory import create_session_manager
 from app.core.graph.dynamic_graph_builder import DynamicGraphBuilder
-from app.core.manager.executor_manager import ExecutorManager
 from app.core.graph.graph_executor import GraphExecutor
 from app.core.hooks.graph_state_hook import GraphStateHook
+from app.core.manager.executor_manager import ExecutorManager
 from app.core.manager.function_manager import function_router
 from app.core.manager.tool_manager import tool_factory
 from app.core.utils.webhook_utils import infer_webhook_spec_from_schema
@@ -77,11 +78,11 @@ async def prepare_data(graph_id: str, graph_spec: GraphSpec, request: Request):
     return execute_data
 
 
-@webhook_router.post("/invoke/{graph_id}")
-async def invoke_graph(
+@webhook_router.post("/invoke/{graph_id}", response_model=Result[Dict[str, Any]])
+async def invoke(
         graph_id: str,
         request: Request,
-) -> Result[Dict[str, Any]]:
+):
     result_dict = {}
     session_id = uuid.uuid4().hex
     graph_spec = GRAPH_REGISTRY.get(graph_id)
@@ -117,29 +118,20 @@ async def invoke_graph(
         return Result.failed(message=msg)
 
 
-@webhook_router.post("/execute/{graph_id}")
-async def execute_graph_stream(
+@webhook_router.post("/submit/{graph_id}", response_model=Result[ExecutionResponse])
+async def submit(
         graph_id: str,
         request: Request,
-) -> Result[Dict[str, str]]:
-    """
-    启动图执行任务（双端点模式第一步）
-
-    返回 execution_id 和 stream_url，客户端使用 stream_url 订阅事件流
-    支持断线重连
-    """
+):
     graph_spec = GRAPH_REGISTRY.get(graph_id)
     if not graph_spec:
         return Result.failed(code=404, message=f"Graph '{graph_id}' not found")
 
-    # 生成唯一的 execution_id
     execution_id = uuid.uuid4().hex
 
     try:
-        # 准备数据
         execute_data = await prepare_data(graph_id, graph_spec, request)
 
-        # 构建 graph
         builder = DynamicGraphBuilder(
             tool_router=tool_factory,
             function_router=function_router,
@@ -160,15 +152,7 @@ async def execute_graph_stream(
 
         asyncio.create_task(executor.run_streamed(execute_data))
 
-        logger.info(f"Started execution: {execution_id} for graph: {graph_id}")
-
-        return Result.ok(
-            data={
-                "graph_id": graph_id,
-                "execution_id": execution_id,
-                "stream_url": f"/webhooks/stream/{execution_id}",
-
-            })
+        return Result.ok(data=ExecutionResponse(graph_id=graph_id, execution_id=execution_id))
 
     except Exception as e:
         msg = f"{type(e).__name__}: {e}"
@@ -177,10 +161,10 @@ async def execute_graph_stream(
 
 
 @webhook_router.get("/stream/{execution_id}")
-async def subscribe_stream(
+async def stream(
         execution_id: str,
-        last_event_id: Optional[str] = Header(None, alias="Last-Event-ID"),
-        latest_id: Optional[str] = Query(None)
+        last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
+        latest_event_id: Optional[str] = Query(default=None)
 ):
     executor = await ExecutorManager.get(execution_id)
     if not executor:
@@ -189,7 +173,7 @@ async def subscribe_stream(
             detail=f"Execution '{execution_id}' not found. It may have expired or been cleaned up."
         )
 
-    effective_last_id = latest_id or last_event_id
+    effective_last_id = latest_event_id or last_event_id
 
     try:
         return StreamingResponse(
@@ -208,19 +192,23 @@ async def subscribe_stream(
         raise HTTPException(status_code=500, detail=msg)
 
 
-@webhook_router.get("/webhook-info/{graph_id}")
+@webhook_router.get("/webhook-info/{graph_id}", response_model=Result[WebHookInfoResponse])
 async def get_webhook_info(graph_id: str):
-    graph_spec = GRAPH_REGISTRY.get(graph_id)
-    if not graph_spec:
-        raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
+    try:
+        graph_spec = GRAPH_REGISTRY.get(graph_id)
+        if not graph_spec:
+            raise HTTPException(status_code=404, detail=f"Graph '{graph_id}' not found")
 
-    webhook_spec = infer_webhook_spec_from_schema(graph_spec.input_schema)
-
-    return {
-        "graph_id": graph_id,
-        "input_type": webhook_spec.input_type,
-        "file_fields": webhook_spec.file_fields,
-        "data_fields": webhook_spec.data_fields,
-        "input_schema": graph_spec.input_schema,
-        "output_schema": graph_spec.output_schema,
-    }
+        webhook_spec = infer_webhook_spec_from_schema(graph_spec.input_schema)
+        return Result.ok(data=WebHookInfoResponse(
+            graph_id=graph_id,
+            input_type=webhook_spec.input_type,
+            data_fields=webhook_spec.data_fields,
+            file_fields=webhook_spec.file_fields,
+            input_schema=webhook_spec.input_schema,
+            output_schema=graph_spec.output_schema,
+        ))
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"
+        logger.error(msg)
+        return Result.failed(message=msg)

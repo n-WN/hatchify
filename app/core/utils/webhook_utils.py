@@ -8,7 +8,7 @@
 - 推断规则简单明确：有 format: 'binary' → multipart/form-data，否则 → application/json
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Literal
 
 from app.common.domain.entity.webhook_spec import WebhookSpec
 
@@ -92,11 +92,11 @@ def infer_webhook_spec_from_schema(input_schema: Dict[str, Any] | None) -> Webho
             data_fields.append(field_name)
 
     # 根据是否有文件字段决定 input_type
-    input_type = "multipart/form-data" if file_fields else "application/json"
+    input_type: Literal["application/json", "multipart/form-data"] = "multipart/form-data" if file_fields else "application/json"
 
     return WebhookSpec(
         input_type=input_type,
         input_schema=input_schema,
         file_fields=file_fields,
-        data_fields=data_fields
+        data_fields=data_fields,
     )

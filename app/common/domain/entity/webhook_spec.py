@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Literal
 
 from pydantic import BaseModel, Field
 
@@ -19,7 +19,7 @@ class WebhookSpec(BaseModel):
     - multipart/form-data: 表单请求（支持文件上传）
     """
 
-    input_type: str = Field(
+    input_type: Literal["application/json", "multipart/form-data"] = Field(
         default="application/json",
         description="输入类型: 'application/json' 或 'multipart/form-data'"
     )

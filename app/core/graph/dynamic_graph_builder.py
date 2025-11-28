@@ -203,12 +203,6 @@ class DynamicGraphBuilder:
             original_prompt = agent.system_prompt
             agent.system_prompt = original_prompt + completion_instruction
 
-            logger.info(
-                f"注入 COMPLETE 指令到 {agent_node.category.value} Agent: {agent_node.name}"
-            )
-            logger.debug(f"原始指令长度: {len(original_prompt)} 字符")
-            logger.debug(f"注入后指令长度: {len(agent.system_prompt)} 字符")
-
         return agent
 
     def _create_function_node(self, function_node_spec: FunctionNode) -> FunctionNodeWrapper:

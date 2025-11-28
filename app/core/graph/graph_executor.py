@@ -15,12 +15,8 @@ from app.common.domain.entity.graph_execute_data import GraphExecuteData
 from app.common.event.stream_event import NodeStartEvent, GraphEvent, NodeStopEvent, NodeHandoffEvent, ResultEvent, \
     StartEvent, DoneEvent, CancelEvent, ErrorEvent, PingEvent
 from app.common.extensions.ext_storage import storage_client
-from app.core.manager.event_manager import EventStore
 from app.core.graph.graph_wrapper import GraphWrapper
-
-
-
-
+from app.core.manager.event_manager import EventStore
 
 document_formats = get_args(DocumentFormat)
 image_formats = get_args(ImageFormat)
@@ -30,12 +26,12 @@ video_formats = get_args(VideoFormat)
 class GraphExecutor:
 
     def __init__(
-        self,
-        graph_id: str,
-        graph: GraphWrapper,
-        ping_interval: int = 15,
-        enable_reconnect: bool = True,
-        event_ttl: int = 3600
+            self,
+            graph_id: str,
+            graph: GraphWrapper,
+            ping_interval: int = 15,
+            enable_reconnect: bool = True,
+            event_ttl: int = 3600
     ):
         self.graph_id = graph_id
         self.graph = graph

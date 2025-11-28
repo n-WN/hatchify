@@ -2,24 +2,19 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from enum import Enum as PyEnum
 
 from sqlalchemy import (
     String,
     DateTime,
     func,
-    Integer,
-    Text,
-    Enum,
-    JSON,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.business.db.base import Base
 
 
-class GraphTable(Base):
-    __tablename__ = "graph"
+class SessionTable(Base):
+    __tablename__ = "session"
 
     id: Mapped[str] = mapped_column(
         String(36),
@@ -27,18 +22,9 @@ class GraphTable(Base):
         default=lambda: uuid.uuid4().hex,
     )
 
-    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    # 当前工作区的 spec（唯一真实源）
-    current_spec: Mapped[dict] = mapped_column(JSON, nullable=False)
-
-    # 指向最新快照版本的 ID
-    # NULL = 有未保存的修改
-    # NOT NULL = 工作区等于该版本
-    current_version_id: Mapped[int | None] = mapped_column(
-        Integer,
-        nullable=True,
+    graph_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
         index=True,
     )
 
@@ -51,5 +37,3 @@ class GraphTable(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
-
-

@@ -2,11 +2,11 @@ import asyncio
 
 import uvicorn
 
-from app.common.constants.constants import Constants
+from hatchify.common.constants.constants import Constants
 
 if __name__ == "__main__":
     config = uvicorn.Config(
-        "app.launch.launch:app",
+        "hatchify.launch.launch:app",
         host="0.0.0.0",
         port=8000,
         loop="asyncio",

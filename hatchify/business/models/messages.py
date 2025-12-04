@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+
+from sqlalchemy import (
+    String,
+    DateTime,
+    func,
+    Enum, JSON,
+)
+from sqlalchemy.orm import Mapped, mapped_column
+
+from hatchify.business.db.base import Base
+from hatchify.common.domain.enums.message_role import MessageRole
+
+
+class MessageTable(Base):
+    __tablename__ = "message"
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: uuid.uuid4().hex,
+    )
+    session_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[MessageRole] = mapped_column(
+        Enum(MessageRole),
+        nullable=False,
+    )
+    content: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+    )
+    token_usage: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+    # 用于存储oss key等其他信息
+    meta_data: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )

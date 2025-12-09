@@ -52,7 +52,7 @@ async def get_by_id(
         return Result.error(code=500, message=msg)
 
 @graphs_router.get("/get_by_session_id/{session_id}", response_model=Result[GraphResponse])
-async def get_by_id(
+async def get_by_session_id(
         session_id: str = Path(default=...),
         session: AsyncSession = Depends(get_db),
         service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),

@@ -24,7 +24,7 @@ class GraphTable(Base):
         primary_key=True,
         default=lambda: uuid.uuid4().hex,
     )
-    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_spec: Mapped[dict] = mapped_column(JSON, nullable=False)  # 当前工作区的 spec（唯一真实源）
     # 指向最新快照版本的 ID

@@ -170,7 +170,10 @@ async def deploy_web_app(
     流程：
     1. 检查 graph 是否存在
     2. 检查项目目录
-    3. 提交部署任务（npm install + build）
+    3. 智能判断是否需要构建：
+       - 如果 redeploy=true，强制重新构建
+       - 如果 dist/ 不存在，需要构建
+       - 如果 dist/ 存在且是最新的，直接挂载
     4. 动态挂载静态文件到 /preview/{graph_id}/
     5. 返回 execution_id 用于获取流式日志
     """
@@ -197,7 +200,7 @@ async def deploy_web_app(
             redeploy=request.redeploy,
         )
 
-        # 4. 提交部署任务
+        # 4. 提交部署任务（智能判断是否需要构建）
         await StreamManager.create(execution_id, generator)
         await generator.submit_task()
 

@@ -15,3 +15,10 @@ class Constants:
         @classmethod
         def get_yaml_path(cls, environment: str) -> str:
             return os.path.join(cls.ResourcesPath, f"{environment}.yaml")
+
+    class WebBuilder:
+        """Web Builder 相关常量"""
+        PACKAGE_JSON = "package.json"
+        NODE_MODULES = "node_modules"
+        DIST_DIR = "dist"
+        PREVIEW_PREFIX = "/preview"

@@ -22,6 +22,7 @@ from hatchify.business.api.v1.session_router import sessions_router
 from hatchify.business.api.v1.tool_router import tool_router
 from hatchify.business.api.v1.web_builder_router import web_builder_router
 from hatchify.business.api.v1.web_hook_router import web_hook_router
+from hatchify.business.middleware.preview_middleware import PreviewMiddleware
 from hatchify.business.db.session import init_db
 from hatchify.common.domain.result.result import Result
 from hatchify.common.extensions.ext_storage import init_storage
@@ -68,6 +69,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 添加预览中间件 - 在请求到达路由前处理挂载
+app.add_middleware(PreviewMiddleware)
 
 
 @app.exception_handler(Exception)

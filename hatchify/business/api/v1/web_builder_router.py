@@ -107,7 +107,7 @@ async def submit_stream_conversation(
         agent = create_agent_by_agent_card(
             agent_card=agent_card,
             conversation_manager=SlidingWindowConversationManager(),
-            session_manager=create_session_manager(session_id=request.graph_id),
+            session_manager=create_session_manager(graph_id=request.graph_id, session_id=request.graph_id),
             hooks=[SecurityFileHook(
                 workspace=project_absolute_path,
                 extra_banned_commands=['npm', 'pnpm', 'yarn', 'bun', 'deno']  # 禁用包管理器和构建命令
@@ -243,3 +243,45 @@ async def stream_deploy(
         latest_event_id=latest_event_id,
         replay=replay
     )
+
+
+@web_builder_router.get("/history/{graph_id}", response_model=Result[list[dict]])
+async def get_history(
+        graph_id: str = Path(..., description="Graph ID (session_id)"),
+):
+    """
+    获取 Web Builder 的聊天历史记录
+
+    Args:
+        graph_id: Graph ID (也是 session_id)
+
+    Returns:
+        Result[List[dict]]: 聊天历史消息列表
+    """
+    try:
+        session_manager = create_session_manager(graph_id=graph_id, session_id=graph_id)
+        agent_id = "web-builder"
+
+        # 获取聊天历史
+        messages = session_manager.list_messages(
+            session_id=graph_id,
+            agent_id=agent_id,
+        )
+
+        # 转换为响应格式
+        data = []
+        for msg in messages:
+            actual_message = msg.to_message()
+            data.append({
+                "id": str(msg.message_id),
+                "session_id": graph_id,
+                "role": actual_message.get("role"),
+                "content": actual_message.get("content", []),
+                "created_at": msg.created_at,
+            })
+
+        return Result.ok(data=data)
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"
+        logger.error(msg)
+        return Result.error(message=msg)

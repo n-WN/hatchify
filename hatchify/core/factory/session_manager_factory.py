@@ -1,18 +1,25 @@
 import asyncio
 import copy
 import json
+import mimetypes
 import os.path
 import threading
+import uuid
 from typing import cast, Any, Optional
+from typing import get_args
 
-from strands.session import FileSessionManager, SessionManager
+from strands.session import FileSessionManager, SessionManager, RepositorySessionManager
 from strands.types.exceptions import SessionException
+from strands.types.media import DocumentFormat, ImageFormat, VideoFormat
 
 from hatchify.common.domain.enums.session_manager_type import SessionManagerType
 from hatchify.common.extensions.ext_storage import storage_client
 from hatchify.common.settings.settings import get_hatchify_settings
 
 settings = get_hatchify_settings()
+document_formats = get_args(DocumentFormat)
+image_formats = get_args(ImageFormat)
+video_formats = get_args(VideoFormat)
 
 
 class BinarySafeFileSessionManager(FileSessionManager):
@@ -42,11 +49,13 @@ class BinarySafeFileSessionManager(FileSessionManager):
 
     def __init__(
             self,
+            graph_id: str,
             session_id: str,
             storage_dir: Optional[str] = None,
             **kwargs: Any,
     ):
         super().__init__(session_id, storage_dir, **kwargs)
+        self.graph_id = graph_id
         self._ensure_loop()
 
     @staticmethod
@@ -60,9 +69,39 @@ class BinarySafeFileSessionManager(FileSessionManager):
                 elif image := task.get("image"):
                     if source := image.get("source"):
                         source["bytes"] = bytes_data
-                elif audio := task.get("audio"):
-                    if source := audio.get("source"):
+                elif video := task.get("video"):
+                    if source := video.get("source"):
                         source["bytes"] = bytes_data
+
+    async def update_binary_data(self, data: dict[str, Any]) -> dict[str, Any]:
+        data_to_write = copy.deepcopy(data)
+        current_task = data_to_write.get("current_task", [])
+
+        for task in current_task:
+            # 处理已有 source_key 的任务,只需移除 bytes
+            if task.get("source_key"):
+                for content_type in ["document", "image", "video"]:
+                    if content := task.get(content_type):
+                        if source := content.get("source"):
+                            source.pop("bytes", None)
+            else:
+                # 处理没有 source_key 的任务,需要保存二进制数据
+                for content_type in ["document", "image", "video"]:
+                    if content := task.get(content_type):
+                        content_format = content.get("format")
+                        if not content_format:
+                            continue
+
+                        mime_type = mimetypes.types_map.get(f".{content_format}") or "application/octet-stream"
+
+                        if source := content.get("source"):
+                            if bytes_data := source.pop("bytes", None):
+                                key = f"{self.graph_id}/hatchify__{uuid.uuid4().hex}.{content_format}"
+                                await storage_client.save(key=key, data=bytes_data, mimetype=mime_type)
+                                task["source_key"] = key
+                                break  # 每个 task 只会有一种媒体类型
+
+        return data_to_write
 
     def _read_file(self, path: str) -> dict[str, Any]:
         """Read JSON file."""
@@ -90,31 +129,25 @@ class BinarySafeFileSessionManager(FileSessionManager):
         # This automic write ensure the completeness of session files in both single agent/ multi agents
         tmp = f"{path}.tmp"
 
-        data_to_write = copy.deepcopy(data)
-        current_task = data_to_write.get("current_task", [])
-
-        for task in current_task:
-            if task.get("source_key"):
-                if document := task.get("document"):
-                    if source := document.get("source"):
-                        source.pop("bytes", None)
-                elif image := task.get("image"):
-                    if source := image.get("source"):
-                        source.pop("bytes", None)
-                elif audio := task.get("audio"):
-                    if source := audio.get("source"):
-                        source.pop("bytes", None)
+        loop = self._ensure_loop()
+        future = asyncio.run_coroutine_threadsafe(
+            self.update_binary_data(data),
+            loop
+        )
+        result = future.result()
 
         with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(data_to_write, f, indent=2, ensure_ascii=False)
+            json.dump(result, f, indent=2, ensure_ascii=False)
         os.replace(tmp, path)
 
 
-def create_session_manager(session_id: str) -> SessionManager:
+def create_session_manager(graph_id: str, session_id: str):
     session_manager = settings.session_manager
     match session_manager.manager:
         case SessionManagerType.LOCAL | _:
             base_dir = session_manager.file.root
             folder = session_manager.file.folder
             storage_dir = os.path.join(base_dir, folder)
-            return BinarySafeFileSessionManager(session_id=session_id, storage_dir=storage_dir)  # type: ignore
+            return BinarySafeFileSessionManager(
+                graph_id=graph_id, session_id=session_id, storage_dir=storage_dir  # type: ignore
+            )

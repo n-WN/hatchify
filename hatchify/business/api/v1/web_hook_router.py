@@ -7,10 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import FormData
 from starlette.responses import StreamingResponse
 
-from hatchify.business.utils.sse_helper import create_sse_response
 from hatchify.business.db.session import get_db
 from hatchify.business.manager.service_manager import ServiceManager
 from hatchify.business.services.graph_service import GraphService
+from hatchify.business.utils.sse_helper import create_sse_response
 from hatchify.common.domain.entity.graph_execute_data import FileData, GraphExecuteData
 from hatchify.common.domain.entity.graph_spec import GraphSpec
 from hatchify.common.domain.responses.web_hook import WebHookInfoResponse, ExecutionResponse
@@ -19,10 +19,9 @@ from hatchify.common.extensions.ext_storage import storage_client
 from hatchify.common.settings.settings import get_hatchify_settings
 from hatchify.core.factory.session_manager_factory import create_session_manager
 from hatchify.core.graph.dynamic_graph_builder import DynamicGraphBuilder
-
 from hatchify.core.graph.hooks.graph_state_hook import GraphStateHook
-from hatchify.core.manager.stream_manager import StreamManager
 from hatchify.core.manager.function_manager import function_router
+from hatchify.core.manager.stream_manager import StreamManager
 from hatchify.core.manager.tool_manager import tool_factory
 from hatchify.core.stream_handler.graph_executor import GraphExecutor
 from hatchify.core.utils.webhook_utils import infer_webhook_spec_from_schema
@@ -107,7 +106,7 @@ async def invoke(
         tool_router=tool_factory,
         function_router=function_router,
         hooks=[GraphStateHook()],
-        session_manager=create_session_manager(session_id=session_id)
+        session_manager=create_session_manager(graph_id=graph_id, session_id=session_id)
     )
 
     graph = builder.build_graph(graph_spec)
@@ -149,7 +148,7 @@ async def submit(
             tool_router=tool_factory,
             function_router=function_router,
             hooks=[GraphStateHook()],
-            session_manager=create_session_manager(session_id=execution_id)
+            session_manager=create_session_manager(graph_id=graph_id, session_id=execution_id)
         )
         graph = builder.build_graph(graph_spec)
 

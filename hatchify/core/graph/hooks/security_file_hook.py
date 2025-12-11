@@ -89,7 +89,7 @@ class SecurityFileHook(HookProvider):
 
                 case "file_read":
                     path = cast(str, event.tool_use.get("input", {}).get("path"))
-                    result = self.validate_file_path(path)
+                    result = self.validate_file_path(path, allow_directory=False)
 
                     if not result.is_valid:
                         event.cancel_tool = result.error
@@ -101,7 +101,7 @@ class SecurityFileHook(HookProvider):
 
                 case "image_reader":
                     path = cast(str, event.tool_use.get("input", {}).get("image_path"))
-                    result = self.validate_file_path(path)
+                    result = self.validate_file_path(path, allow_directory=False)
 
                     if not result.is_valid:
                         event.cancel_tool = result.error
@@ -113,7 +113,7 @@ class SecurityFileHook(HookProvider):
 
                 case "editor":
                     path = cast(str, event.tool_use.get("input", {}).get("path"))
-                    result = self.validate_file_path(path)
+                    result = self.validate_file_path(path, allow_directory=False)
 
                     if not result.is_valid:
                         event.cancel_tool = result.error
@@ -125,7 +125,7 @@ class SecurityFileHook(HookProvider):
 
                 case "file_write":
                     path = cast(str, event.tool_use.get("input", {}).get("path"))
-                    result = self.validate_file_path(path)
+                    result = self.validate_file_path(path, allow_directory=False)
 
                     if not result.is_valid:
                         event.cancel_tool = result.error
@@ -317,7 +317,7 @@ class SecurityFileHook(HookProvider):
 
         return absolute_path
 
-    def validate_file_path(self, path: str, strict_mode: bool = False):
+    def validate_file_path(self, path: str, strict_mode: bool = False, allow_directory: bool = True):
         """验证文件路径是否符合安全策略
 
         🔒 安全检查：
@@ -325,10 +325,25 @@ class SecurityFileHook(HookProvider):
         2. 白名单检查（仅 strict_mode）：仅允许访问指定目录
         3. 路径遍历防护：防止 ../ 攻击
         4. 🪟 Windows 兼容：路径比较大小写不敏感
+        5. 目录检查：默认禁止文件操作工具操作目录（仅 allow_directory=False 时）
+
+        Args:
+            path: 要验证的路径
+            strict_mode: 是否启用严格模式（白名单检查）
+            allow_directory: 是否允许操作目录（默认 False，仅用于 shell 工具）
         """
         try:
             # 规范化路径（解析符号链接）
             absolute_path = self.normalize_file_path(path)
+
+            # 🔒 目录检查：文件操作工具不允许操作目录
+            if not allow_directory and os.path.isdir(absolute_path):
+                logger.warning(f"🚫 Blocked directory operation: {absolute_path}")
+                return ValidationResult(
+                    is_valid=False,
+                    normalized_path=absolute_path,
+                    error=f'Directory operations are not allowed for file tools. Please use shell tool instead (e.g., ls, mkdir, rm -r).'
+                )
 
             # 🪟 Windows 兼容：统一转换为小写进行比较（Windows 路径不区分大小写）
             # Unix 系统上这不影响安全性，因为 realpath 已经规范化了路径

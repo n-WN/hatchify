@@ -21,6 +21,7 @@ def create_agent_by_agent_card(
     model = create_llm_by_agent_card(agent_card)
     tools = [tool_factory.get_tool(tool) for tool in agent_card.tools]
     return Agent(
+        agent_id=agent_card.name,
         model=model,
         tools=tools,
         system_prompt=agent_card.instruction,

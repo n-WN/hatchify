@@ -9,16 +9,21 @@ from starlette.responses import StreamingResponse
 
 from hatchify.business.db.session import get_db
 from hatchify.business.manager.service_manager import ServiceManager
+from hatchify.business.models.execution import ExecutionTable
 from hatchify.business.models.graph import GraphTable
+from hatchify.business.services.execution_service import ExecutionService
 from hatchify.business.services.graph_service import GraphService
 from hatchify.business.services.session_service import SessionService
 from hatchify.business.utils.pagination_utils import CustomParams
 from hatchify.business.utils.sse_helper import create_sse_response
+from hatchify.common.domain.enums.execution_type import ExecutionType
 from hatchify.common.domain.requests.graph import (
     PageGraphRequest,
     UpdateGraphRequest,
     GraphConversationRequest,
 )
+from hatchify.common.domain.requests.execution import PageExecutionRequest
+from hatchify.common.domain.responses.execution_response import ExecutionResponse as ExecutionResponseDTO
 from hatchify.common.domain.responses.graph_response import GraphResponse
 from hatchify.common.domain.responses.graph_rollback_response import GraphRollbackResponse
 from hatchify.common.domain.responses.graph_version_response import GraphVersionResponse
@@ -29,6 +34,8 @@ from hatchify.core.manager.function_manager import function_router
 from hatchify.core.manager.model_card_manager import model_card_manager
 from hatchify.core.manager.stream_manager import StreamManager
 from hatchify.core.manager.tool_manager import tool_factory
+from hatchify.core.stream_handler.event_listener.execution_tracker_listener import ExecutionTrackerListener
+from hatchify.core.stream_handler.event_listener.graph_metadata_listener import GraphMetadataListener
 from hatchify.core.stream_handler.graph_spec_generator import GraphSpecGenerator
 
 graphs_router = APIRouter(prefix="/graphs")
@@ -50,6 +57,7 @@ async def get_by_id(
         msg = f"{type(e).__name__}: {str(e)}"
         logger.error(msg)
         return Result.error(code=500, message=msg)
+
 
 @graphs_router.get("/get_by_session_id/{session_id}", response_model=Result[GraphResponse])
 async def get_by_session_id(
@@ -182,19 +190,29 @@ async def rollback_to_version(
 @graphs_router.post("/stream", response_model=Result[ExecutionResponse])
 async def submit_stream_conversation(
         request: GraphConversationRequest,
-        session_id: Optional[str] = Query(default=uuid.uuid4().hex)
+        session_id: Optional[str] = Query(default=uuid.uuid4().hex),
+        session: AsyncSession = Depends(get_db),
+        execution_service: ExecutionService = Depends(ServiceManager.get_service_dependency(ExecutionService)),
 ):
-    execution_id = uuid.uuid4().hex
     try:
+        # 通过 Service 创建执行记录
+        execution_obj: ExecutionTable = await execution_service.create_execution(
+            session=session,
+            execution_type=ExecutionType.GRAPH_BUILDER,
+            session_id=session_id,
+        )
+
+        # 创建 Generator（会自动通过 Hook 更新状态）
         generator = GraphSpecGenerator(
-            source_id=execution_id,
+            source_id=execution_obj.id,
             model_card_manager=model_card_manager,
             tool_router=tool_factory,
             function_router=function_router,
+            listeners=[ExecutionTrackerListener(), GraphMetadataListener()]
         )
-        await StreamManager.create(execution_id, generator)
+        await StreamManager.create(execution_obj.id, generator)
         await generator.submit_task(session_id=session_id, request=request)
-        return Result.ok(data=ExecutionResponse(session_id=session_id, execution_id=execution_id))
+        return Result.ok(data=ExecutionResponse(session_id=session_id, execution_id=execution_obj.id))
     except Exception as e:
         msg = f"{type(e).__name__}: {e}"
         logger.error(msg)

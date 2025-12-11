@@ -1,18 +1,21 @@
 import asyncio
 import os
 import shutil
-from typing import AsyncIterator, Dict, Any
+from typing import AsyncIterator, Dict, Any, Optional, List
 
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
+from hatchify.common.constants.constants import Constants
 from hatchify.common.domain.event.base_event import StreamEvent
 from hatchify.common.domain.event.deploy_event import ProgressEvent, LogEvent, DeployResultEvent
+from hatchify.common.settings.settings import get_hatchify_settings
+from hatchify.core.stream_handler.event_listener.event_listener import EventListener
 from hatchify.core.stream_handler.stream_handler import BaseStreamHandler
-from hatchify.common.constants.constants import Constants
 
 # 全局状态：已挂载的项目
 MOUNTED_GRAPHS: Dict[str, str] = {}  # {graph_id: dist_path}
+settings = get_hatchify_settings()
 
 
 class DeployGenerator(BaseStreamHandler):
@@ -23,18 +26,19 @@ class DeployGenerator(BaseStreamHandler):
             source_id: str,
             graph_id: str,
             project_path: str,
-            redeploy: bool = False,
+            rebuild: bool = False,
+            listeners: Optional[List[EventListener]] = None,
     ):
-        super().__init__(source_id=source_id, ping_interval=5)
+        super().__init__(source_id=source_id, listeners=listeners)
         self.graph_id = graph_id
         self.project_path = project_path
-        self.redeploy = redeploy
+        self.rebuild = rebuild
 
         # 预定义路径常量
         self.package_json_path = os.path.join(project_path, Constants.WebBuilder.PACKAGE_JSON)
         self.node_modules_path = os.path.join(project_path, Constants.WebBuilder.NODE_MODULES)
         self.dist_path = os.path.join(project_path, Constants.WebBuilder.DIST_DIR)
-        self.preview_url = f"{Constants.WebBuilder.PREVIEW_PREFIX}/{graph_id}/"
+        self.preview_url = f"{Constants.WebBuilder.PREVIEW_PREFIX}/{graph_id}"
         self.mount_path = f"{Constants.WebBuilder.PREVIEW_PREFIX}/{graph_id}"
 
     async def handle_stream_event(self, event: Any):
@@ -134,13 +138,13 @@ class DeployGenerator(BaseStreamHandler):
             raise FileNotFoundError(f"{Constants.WebBuilder.PACKAGE_JSON} 不存在: {self.package_json_path}")
 
         # 快速路径：已有构建且不需要重建
-        if not self.redeploy and os.path.exists(self.dist_path):
+        if not self.rebuild and os.path.exists(self.dist_path):
             async for event in self._check_and_mount_existing():
                 yield event
             return
 
         # 需要重建：清理 -> 安装 -> 构建 -> 挂载
-        if self.redeploy:
+        if self.rebuild:
             async for event in self._clean_build_artifacts():
                 yield event
 
@@ -170,7 +174,7 @@ class DeployGenerator(BaseStreamHandler):
         yield StreamEvent(
             type="deploy_result",
             data=DeployResultEvent(
-                preview_url=self.preview_url,
+                preview_url=f"{settings.server.base_url}{self.preview_url}",
                 message=f"应用已部署到 {self.preview_url}"
             )
         )

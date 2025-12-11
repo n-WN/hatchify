@@ -14,6 +14,8 @@ from hatchify.common.domain.event.base_event import StreamEvent
 from hatchify.common.domain.event.execute_event import NodeStartEvent, NodeStopEvent, NodeHandoffEvent, ResultEvent
 from hatchify.common.extensions.ext_storage import storage_client
 from hatchify.core.graph.graph_wrapper import GraphWrapper
+from hatchify.core.stream_handler.event_listener.event_listener import EventListener
+
 from hatchify.core.stream_handler.stream_handler import BaseStreamHandler
 
 document_formats = get_args(DocumentFormat)
@@ -28,9 +30,11 @@ class GraphExecutor(BaseStreamHandler):
             graph_id: str,
             graph: GraphWrapper,
             graph_spec: GraphSpec,
+            listeners: Optional[List[EventListener]] = None,
     ):
         super().__init__(
             source_id=graph_id,
+            listeners=listeners,
         )
         self.graph = graph
         self.graph_spec = graph_spec

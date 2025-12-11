@@ -34,7 +34,8 @@ hatchify:
       echo: False
       pool_pre_ping: True
       connect_args:
-        check_same_thread: True
+        check_same_thread: False
+        timeout: 30.0
   web_app_builder:
     repo_url: git@github.com:Sider-ai/hatchify-web-app-template.git
     branch: master

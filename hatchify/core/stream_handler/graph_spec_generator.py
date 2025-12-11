@@ -42,6 +42,8 @@ from hatchify.core.prompts.prompts import (
     GRAPH_REFINEMENT_USER_PROMPT,
     SCHEMA_EXTRACTOR_PROMPT, RESOURCE_MESSAGE,
 )
+from hatchify.core.stream_handler.event_listener.event_listener import EventListener
+
 from hatchify.core.stream_handler.stream_handler import BaseStreamHandler
 from hatchify.core.utils.json_generator import json_generator
 from hatchify.core.utils.schema_utils import generate_output_schema
@@ -57,8 +59,12 @@ class GraphSpecGenerator(BaseStreamHandler):
             model_card_manager: ModelCardManager,
             tool_router: ToolRouter,
             function_router: ToolRouter[DecoratedFunctionTool],
+            listeners: Optional[List[EventListener]] = None,
     ):
-        super().__init__(source_id=source_id)
+        super().__init__(
+            source_id=source_id,
+            listeners=listeners,
+        )
         self.model_card_manager = model_card_manager
         self.tool_router = tool_router
         self.function_router = function_router
@@ -391,6 +397,7 @@ class GraphSpecGenerator(BaseStreamHandler):
             )
             user_messages = LiteLLMModel.format_request_messages(request.messages)
 
+            # 事务 1: 创建或获取 graph 和 session
             async with transaction(session):
                 yield StreamEvent(
                     type="phase",
@@ -425,45 +432,49 @@ class GraphSpecGenerator(BaseStreamHandler):
                             cast(str, session_obj.id),
                             {"graph_id": cast(str, graph_obj.id)},
                         )
+            # 事务 1 结束，释放数据库锁
 
-                # generate architecture
-                yield StreamEvent(
-                    type="phase",
-                    data=PhaseEvent(phase="generate", message="Generating graph architecture"),
-                )
-                graph_arch, _ = await self._generate_graph_architecture(
-                    pre_graph_spec=cast(Dict[str, Any], graph_obj.current_spec),
-                    user_messages=user_messages,
-                    history_messages=history_messages
-                )
+            # LLM 调用（不在事务中，不持有数据库锁）
+            # generate architecture
+            yield StreamEvent(
+                type="phase",
+                data=PhaseEvent(phase="generate", message="Generating graph architecture"),
+            )
+            graph_arch, _ = await self._generate_graph_architecture(
+                pre_graph_spec=cast(Dict[str, Any], graph_obj.current_spec),
+                user_messages=user_messages,
+                history_messages=history_messages
+            )
 
-                # extract schemas
-                yield StreamEvent(
-                    type="phase",
-                    data=PhaseEvent(phase="extract", message="Extracting schemas from instructions"),
-                )
-                schemas_output, _ = await self._extract_schemas(graph_arch)
+            # extract schemas
+            yield StreamEvent(
+                type="phase",
+                data=PhaseEvent(phase="extract", message="Extracting schemas from instructions"),
+            )
+            schemas_output, _ = await self._extract_schemas(graph_arch)
 
-                # merge
-                yield StreamEvent(
-                    type="phase",
-                    data=PhaseEvent(phase="merge", message="Merging architecture and schemas"),
-                )
-                graph_spec = self._merge_and_create_spec(graph_arch, schemas_output)
+            # merge
+            yield StreamEvent(
+                type="phase",
+                data=PhaseEvent(phase="merge", message="Merging architecture and schemas"),
+            )
+            graph_spec = self._merge_and_create_spec(graph_arch, schemas_output)
 
-                # result
-                yield StreamEvent(
-                    type="result",
-                    data=ResultEvent(
-                        data={
-                            "graph_id": graph_obj.id,
-                            "spec": graph_spec.model_dump(exclude_none=True),
-                        }
-                    ),
-                )
+            # result 事件（不在事务中，监听器可以自由更新数据库）
+            yield StreamEvent(
+                type="result",
+                data=ResultEvent(
+                    data={
+                        "graph_id": graph_obj.id,
+                        "spec": graph_spec.model_dump(exclude_none=True),
+                    }
+                ),
+            )
 
-                assistant_reply = graph_spec.model_dump_json(indent=2, ensure_ascii=False)
+            assistant_reply = graph_spec.model_dump_json(indent=2, ensure_ascii=False)
 
+            # 事务 2: 更新 graph spec 和保存消息
+            async with transaction(session):
                 if request.mode == ConversationMode.EDIT:
                     update_data: Dict[str, Any] = {
                         "current_spec": graph_spec.model_dump(exclude_none=True),
@@ -502,3 +513,4 @@ class GraphSpecGenerator(BaseStreamHandler):
                 )
 
                 await session.flush()
+            # 事务 2 结束

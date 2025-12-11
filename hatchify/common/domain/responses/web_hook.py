@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class ExecutionResponse(BaseModel):
+    graph_id: Optional[str] = Field(default=None)
     session_id: Optional[str] = Field(default=None)
     execution_id: str
 

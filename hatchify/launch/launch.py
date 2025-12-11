@@ -14,6 +14,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from hatchify.business.api.v1.execution_router import executions_router
 from hatchify.business.api.v1.graph_router import graphs_router
 from hatchify.business.api.v1.graph_version_router import graph_versions_router
 from hatchify.business.api.v1.message_router import messages_router
@@ -99,3 +100,4 @@ app.include_router(sessions_router, prefix="/api", tags=["sessions"])
 app.include_router(web_builder_router, prefix="/api", tags=["web_builder"])
 app.include_router(tool_router, prefix="/api", tags=["tools"])
 app.include_router(model_router, prefix="/api", tags=["models"])
+app.include_router(executions_router, prefix="/api", tags=["executions"])

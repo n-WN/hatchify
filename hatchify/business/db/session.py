@@ -37,6 +37,7 @@ async def init_db():
     from hatchify.business.models.graph_version import GraphVersionTable
     from hatchify.business.models.session import SessionTable
     from hatchify.business.models.messages import MessageTable
+    from hatchify.business.models.execution import ExecutionTable
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

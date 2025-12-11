@@ -1,13 +1,14 @@
 import abc
 import asyncio
 import time
-from typing import Optional, Literal, AsyncIterator, Any
+from typing import Optional, Literal, AsyncIterator, Any, List
 
 from loguru import logger
 
 from hatchify.common.domain.event.base_event import StreamEvent, PingEvent, DoneEvent, ErrorEvent, StartEvent, \
     CancelEvent
 from hatchify.core.manager.event_manager import EventStore
+from hatchify.core.stream_handler.event_listener.event_listener import EventListener
 
 
 class BaseStreamHandler(metaclass=abc.ABCMeta):
@@ -16,7 +17,8 @@ class BaseStreamHandler(metaclass=abc.ABCMeta):
             source_id: str,
             ping_interval: int = 15,
             enable_reconnect: bool = True,
-            event_ttl: int = 3600
+            event_ttl: int = 3600,
+            listeners: Optional[List[EventListener]] = None,
     ):
         self.source_id: str = source_id
         self.ping_task: Optional[asyncio.Task] = None
@@ -28,6 +30,8 @@ class BaseStreamHandler(metaclass=abc.ABCMeta):
         self.event_ttl = event_ttl
         self.event_store: Optional[EventStore] = None
         self.stored_exception: Optional[Exception] = None
+
+        self.listeners: List[EventListener] = listeners or []
 
     async def ping_loop(self):
         try:
@@ -90,10 +94,19 @@ class BaseStreamHandler(metaclass=abc.ABCMeta):
         统一的事件发送方法：
         1. 发送到 stream_queue 供实时客户端消费
         2. 写入 EventStore 供重连客户端读取（独立于客户端连接状态）
+        3. 触发所有注册的监听器
         """
         await self.stream_queue.put(event)
         if self.enable_reconnect and self.event_store:
             self.event_store.append(event)
+
+        # 触发所有监听器
+        for listener in self.listeners:
+            try:
+                await listener.on_event(self.source_id, event)
+            except Exception as e:
+                # 监听器失败不应影响主流程
+                logger.error(f"Listener {listener.name} failed for {self.source_id}: {type(e).__name__}: {e}")
 
     @staticmethod
     def format_sse(event: StreamEvent) -> str:
@@ -190,7 +203,7 @@ class BaseStreamHandler(metaclass=abc.ABCMeta):
             message: str,
             reason: Literal["error"]
     ):
-        await self.stream_queue.put(
+        await self.emit_event(
             StreamEvent(
                 type="start",
                 data=StartEvent(
@@ -200,7 +213,7 @@ class BaseStreamHandler(metaclass=abc.ABCMeta):
         )
 
         if terminal_type == "error":  # error
-            await self.stream_queue.put(
+            await self.emit_event(
                 StreamEvent(
                     type="error",
                     data=ErrorEvent(reason=message),
@@ -212,7 +225,7 @@ class BaseStreamHandler(metaclass=abc.ABCMeta):
         # 在发送 DoneEvent 之前停止 ping
         await self.stop_ping()
 
-        await self.stream_queue.put(
+        await self.emit_event(
             StreamEvent(
                 type="done",
                 data=DoneEvent(

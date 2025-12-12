@@ -46,7 +46,7 @@ class ExecutionTrackerListener(EventListener):
                 case "error":
                     await self._handle_error(execution_id, event.data)
                 case _:
-                    logger.warning(f"Unknown event type: {event.type}")
+                    ...
         except Exception as e:
             logger.error(f"ExecutionTrackerListener failed for {execution_id}: {type(e).__name__}: {e}")
 

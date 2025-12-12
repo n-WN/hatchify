@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Dict, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hatchify.common.domain.enums.message_role import MessageRole
 
@@ -16,3 +16,9 @@ class MessageResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator('token_usage', 'meta_data', mode='before')
+    @classmethod
+    def convert_none_to_dict(cls, v):
+        """将 None 值转换为空字典"""
+        return v if v is not None else {}

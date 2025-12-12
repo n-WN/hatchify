@@ -13,7 +13,6 @@ from hatchify.business.models.execution import ExecutionTable
 from hatchify.business.models.graph import GraphTable
 from hatchify.business.services.execution_service import ExecutionService
 from hatchify.business.services.graph_service import GraphService
-from hatchify.business.services.session_service import SessionService
 from hatchify.business.utils.pagination_utils import CustomParams
 from hatchify.business.utils.sse_helper import create_sse_response
 from hatchify.common.domain.enums.execution_type import ExecutionType
@@ -22,10 +21,7 @@ from hatchify.common.domain.requests.graph import (
     UpdateGraphRequest,
     GraphConversationRequest,
 )
-from hatchify.common.domain.requests.execution import PageExecutionRequest
-from hatchify.common.domain.responses.execution_response import ExecutionResponse as ExecutionResponseDTO
 from hatchify.common.domain.responses.graph_response import GraphResponse
-from hatchify.common.domain.responses.graph_rollback_response import GraphRollbackResponse
 from hatchify.common.domain.responses.graph_version_response import GraphVersionResponse
 from hatchify.common.domain.responses.pagination import PaginationInfo
 from hatchify.common.domain.responses.web_hook import ExecutionResponse
@@ -35,7 +31,6 @@ from hatchify.core.manager.model_card_manager import model_card_manager
 from hatchify.core.manager.stream_manager import StreamManager
 from hatchify.core.manager.tool_manager import tool_factory
 from hatchify.core.stream_handler.event_listener.execution_tracker_listener import ExecutionTrackerListener
-from hatchify.core.stream_handler.event_listener.graph_metadata_listener import GraphMetadataListener
 from hatchify.core.stream_handler.graph_spec_generator import GraphSpecGenerator
 
 graphs_router = APIRouter(prefix="/graphs")
@@ -49,28 +44,6 @@ async def get_by_id(
 ):
     try:
         obj_tb: GraphTable = await service.get_by_id(session, _id)
-        if not obj_tb:
-            return Result.error(code=404, message="Source Not Found")
-        response = GraphResponse.model_validate(obj_tb)
-        return Result.ok(data=response)
-    except Exception as e:
-        msg = f"{type(e).__name__}: {str(e)}"
-        logger.error(msg)
-        return Result.error(code=500, message=msg)
-
-
-@graphs_router.get("/get_by_session_id/{session_id}", response_model=Result[GraphResponse])
-async def get_by_session_id(
-        session_id: str = Path(default=...),
-        session: AsyncSession = Depends(get_db),
-        service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),
-        session_service: SessionService = Depends(ServiceManager.get_service_dependency(SessionService)),
-):
-    try:
-        session_obj = await session_service.get_by_id(session, session_id)
-        if not session_obj:
-            return Result.error(code=404, message="Source Not Found")
-        obj_tb: GraphTable = await service.get_by_id(session, session_obj.graph_id)
         if not obj_tb:
             return Result.error(code=404, message="Source Not Found")
         response = GraphResponse.model_validate(obj_tb)
@@ -152,12 +125,18 @@ async def update_by_id(
 @graphs_router.post("/{id}/snapshot", response_model=Result[GraphVersionResponse])
 async def create_snapshot(
         _id: str = Path(default=..., alias="id"),
+        comment: Optional[str] = Query(default=None, description="快照备注"),
         session: AsyncSession = Depends(get_db),
         service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),
 ):
-    """为 Graph 创建快照版本"""
+    """
+    为 Graph 创建快照版本
+    - 自动使用 graph.current_session_id 作为来源会话
+    - 复制会话历史，生成分支会话
+    - Graph.current_session_id 不变（继续在工作区对话）
+    """
     try:
-        version = await service.create_snapshot(session, _id)
+        version = await service.create_snapshot(session, _id, comment=comment)
         response = GraphVersionResponse.model_validate(version)
         return Result.ok(data=response)
     except Exception as e:
@@ -166,20 +145,21 @@ async def create_snapshot(
         return Result.error(code=500, message=msg)
 
 
-@graphs_router.post("/{id}/rollback/{version_id}", response_model=Result[GraphRollbackResponse])
+@graphs_router.post("/{id}/rollback/{version_id}", response_model=Result[GraphResponse])
 async def rollback_to_version(
         _id: str = Path(default=..., alias="id"),
         version_id: int = Path(default=...),
         session: AsyncSession = Depends(get_db),
         service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),
 ):
-    """回滚到指定版本"""
+    """
+    回滚到指定版本
+    - 自动切换到该版本的 branch_session_id
+    - 返回的 GraphResponse 包含更新后的 current_session_id
+    """
     try:
-        graph, branch_session_id = await service.rollback_to_version(session, _id, version_id)
-        response = GraphRollbackResponse(
-            graph=GraphResponse.model_validate(graph),
-            branch_session_id=branch_session_id,
-        )
+        graph = await service.rollback_to_version(session, _id, version_id)
+        response = GraphResponse.model_validate(graph)
         return Result.ok(data=response)
     except Exception as e:
         msg = f"{type(e).__name__}: {str(e)}"
@@ -190,29 +170,60 @@ async def rollback_to_version(
 @graphs_router.post("/stream", response_model=Result[ExecutionResponse])
 async def submit_stream_conversation(
         request: GraphConversationRequest,
-        session_id: Optional[str] = Query(default=uuid.uuid4().hex),
+        graph_id: Optional[str] = Query(default=uuid.uuid4().hex),
         session: AsyncSession = Depends(get_db),
+        graph_service: GraphService = Depends(ServiceManager.get_service_dependency(GraphService)),
         execution_service: ExecutionService = Depends(ServiceManager.get_service_dependency(ExecutionService)),
 ):
+    """
+    Graph 对话接口（通过对话生成/修改 Graph spec）
+
+    - 如果提供 graph_id：使用该 Graph 的 current_session_id，对话历史会累积
+    - 如果不提供 graph_id：自动创建新的 Graph 和 Session
+    """
     try:
-        # 通过 Service 创建执行记录
+        # 1. 获取或创建 Graph
+        graph = await graph_service.get_by_id(session, graph_id)
+
+        if graph:
+            # 场景 1: Graph 已存在，使用其 current_session_id（对话历史会累积）
+            current_session_id = graph.current_session_id
+        else:
+            # 场景 2: Graph 不存在，创建新 Graph（使用传入的 graph_id 或生成的 UUID）
+            graph = await graph_service.create(
+                session,
+                {
+                    "id": graph_id,  # 使用指定的 graph_id
+                    "name": "Untitled Graph",
+                    "current_spec": None,  # None 表示尚未生成 spec，首次对话时会自动更新 name 和 spec
+                }
+            )
+            current_session_id = graph.current_session_id
+
+        # 2. 创建执行记录
         execution_obj: ExecutionTable = await execution_service.create_execution(
             session=session,
             execution_type=ExecutionType.GRAPH_BUILDER,
-            session_id=session_id,
+            graph_id=graph_id,
+            session_id=current_session_id,
         )
 
-        # 创建 Generator（会自动通过 Hook 更新状态）
+        # 3. 创建 Generator（会自动通过 Hook 更新状态）
         generator = GraphSpecGenerator(
             source_id=execution_obj.id,
             model_card_manager=model_card_manager,
             tool_router=tool_factory,
             function_router=function_router,
-            listeners=[ExecutionTrackerListener(), GraphMetadataListener()]
+            listeners=[ExecutionTrackerListener()]
         )
         await StreamManager.create(execution_obj.id, generator)
-        await generator.submit_task(session_id=session_id, request=request)
-        return Result.ok(data=ExecutionResponse(session_id=session_id, execution_id=execution_obj.id))
+        await generator.submit_task(session_id=current_session_id, request=request)
+
+        return Result.ok(data=ExecutionResponse(
+            session_id=current_session_id,
+            execution_id=execution_obj.id,
+            graph_id=graph_id
+        ))
     except Exception as e:
         msg = f"{type(e).__name__}: {e}"
         logger.error(msg)

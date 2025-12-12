@@ -10,6 +10,7 @@ class GraphResponse(BaseModel):
     description: Optional[str] = Field(default=None)
     current_spec: Dict[str, Any]
     current_version_id: Optional[int] = Field(default=None)
+    current_session_id: Optional[str] = Field(default=None)
     created_at: datetime
     updated_at: datetime
 

@@ -479,6 +479,13 @@ class GraphSpecGenerator(BaseStreamHandler):
                     update_data: Dict[str, Any] = {
                         "current_spec": graph_spec.model_dump(exclude_none=True),
                     }
+
+                    # 首次生成时同步更新 name 和 description
+                    if graph_obj.current_spec is None:
+                        update_data["name"] = graph_spec.name
+                        if graph_spec.description:
+                            update_data["description"] = graph_spec.description
+
                     await graph_service.update_by_id(
                         session,
                         cast(str, graph_obj.id),

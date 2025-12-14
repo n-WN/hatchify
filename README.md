@@ -2,65 +2,63 @@
 
 <div align="center">
 
-**基于 AWS Strands SDK 的多智能体图执行平台**
-
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.121+-green.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[English](README_EN.md) | 简体中文
+English | [简体中文](README_ZH.md)
 
 ---
 
-🌐 **在线体验**: [https://hatchify.ai/](https://hatchify.ai/) - 无需安装，立即尝试 Vibe Graph！
+🌐 **Live Demo**: [https://hatchify.ai/](https://hatchify.ai/) - Try Vibe Graph instantly without installation!
 
 ---
 
 </div>
 
-## 📖 简介
+## 📖 Introduction
 
-Hatchify 是一个强大的多智能体工作流平台，通过动态图执行引擎实现复杂的 AI Agent 协作。它基于 FastAPI + AWS Strands SDK 构建，支持通过 JSON 配置动态创建和执行 Agent 工作流。
+Hatchify is a powerful multi-agent workflow platform that enables complex AI Agent collaboration through a dynamic graph execution engine. Built on FastAPI + AWS Strands SDK, it supports dynamic creation and execution of Agent workflows via JSON configuration.
 
-### 核心特性
+### Core Features
 
-- 🤖 **动态多智能体编排**: 通过 JSON 配置动态构建和执行 Agent 工作流
-- 🔄 **智能路由系统**: 支持 Rules、JSONLogic、Router Agent、Orchestrator 等多种路由策略
-- 🔌 **MCP 协议集成**: 原生支持 Model Context Protocol，轻松扩展工具能力
-- 💬 **Web Builder**: 对话式 Web 应用生成，支持实时预览和部署（完善中）
-- 📊 **事件驱动架构**: 基于 SSE 的实时事件流，完整追踪执行过程
-- 🗄️ **版本管理**: Graph 规范的版本快照与回滚支持
-- 🎯 **多模型支持**: 统一的 LLM 接口，支持 OpenAI、Gemini、Claude 等主流模型
-- 🔐 **企业级架构**: 分层设计（API/Business/Repository），易于扩展和维护
+- 🤖 **Dynamic Multi-Agent Orchestration**: Build and execute Agent workflows dynamically through JSON configuration
+- 🔄 **Intelligent Routing System**: Support for multiple routing strategies including Rules, JSONLogic, Router Agent, and Orchestrator
+- 🔌 **MCP Protocol Integration**: Native support for Model Context Protocol, easily extend tool capabilities
+- 💬 **Web Builder**: Conversational web application generation with real-time preview and deployment (in progress)
+- 📊 **Event-Driven Architecture**: Real-time event streaming based on SSE, complete execution tracking
+- 🗄️ **Version Management**: Version snapshots and rollback support for Graph specifications
+- 🎯 **Multi-Model Support**: Unified LLM interface supporting OpenAI, Gemini, Claude, and other mainstream models
+- 🔐 **Enterprise Architecture**: Layered design (API/Business/Repository), easy to extend and maintain
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 环境要求
+### Requirements
 
 - Python 3.13+
-- SQLite / PostgreSQL (可选)
-- Node.js 18+ (用于 Web Builder 功能)
+- SQLite / PostgreSQL (optional)
+- Node.js 18+ (for Web Builder functionality)
 
-### 安装
+### Installation
 
 ```bash
-# 克隆仓库
+# Clone repository
 git clone https://github.com/Sider-ai/hatchify.git
 cd hatchify
 
-# 安装依赖（推荐使用 uv）
+# Install dependencies (recommended using uv)
 uv sync
 ```
 
-### 配置
+### Configuration
 
-1. **复制配置文件**
+1. **Copy configuration files**
 ```bash
 cp resources/example.mcp.toml resources/mcp.toml
 cp resources/example.models.toml resources/models.toml
 ```
 
-2. **编辑模型配置** (`resources/models.toml`)
+2. **Edit model configuration** (`resources/models.toml`)
 ```toml
 [[models]]
 name = "gpt-4o"
@@ -69,7 +67,7 @@ api_key = "your-api-key-here"
 api_base = "https://api.openai.com/v1"
 ```
 
-3. **编辑 MCP 服务器配置** (`resources/mcp.toml`)（可选）
+3. **Edit MCP server configuration** (`resources/mcp.toml`) (optional)
 ```toml
 [[servers]]
 name = "filesystem"
@@ -78,30 +76,30 @@ command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
 ```
 
-### 启动
+### Launch
 
 ```bash
-# 开发模式
+# Development mode
 uvicorn hatchify.launch.launch:app --reload --host 0.0.0.0 --port 8000
 
-# 或使用 main.py
+# Or use main.py
 python main.py
 ```
 
-访问 http://localhost:8000/docs 查看 API 文档。
+Visit http://localhost:8000/docs to view API documentation.
 
-### Docker 部署
+### Docker Deployment
 
-#### 1. 构建镜像
+#### 1. Build Image
 
 ```bash
 docker build -t hatchify .
 ```
 
-#### 2. 启动容器
+#### 2. Start Container
 
 ```bash
-# 后台运行，映射端口并挂载数据目录
+# Run in background with port mapping and volume mounting
 docker run -itd \
   --name=hatchify \
   -p 8000:8000 \
@@ -110,40 +108,40 @@ docker run -itd \
   hatchify
 ```
 
-**参数说明：**
-- `-p 8000:8000`: 将容器的 8000 端口映射到主机的 8000 端口
-- `-v ./data:/app/data`: 挂载数据目录（包含数据库、存储、会话等）
-- `-v ./resources:/app/resources`: 挂载配置文件目录（`mcp.toml`、`models.toml`、`development.yaml`）
+**Parameter Explanation:**
+- `-p 8000:8000`: Map container port 8000 to host port 8000
+- `-v ./data:/app/data`: Mount data directory (including database, storage, sessions, etc.)
+- `-v ./resources:/app/resources`: Mount configuration directory (`mcp.toml`, `models.toml`, `development.yaml`)
 
-#### 3. 查看日志
+#### 3. View Logs
 
 ```bash
-# 实时查看日志
+# Real-time log viewing
 docker logs -f hatchify
 
-# 查看最近 100 行日志
+# View last 100 lines
 docker logs --tail 100 hatchify
 ```
 
-#### 4. 容器管理
+#### 4. Container Management
 
 ```bash
-# 停止容器
+# Stop container
 docker stop hatchify
 
-# 启动容器
+# Start container
 docker start hatchify
 
-# 重启容器
+# Restart container
 docker restart hatchify
 
-# 删除容器
+# Remove container
 docker rm -f hatchify
 ```
 
-#### 5. 环境变量配置
+#### 5. Environment Variable Configuration
 
-可以通过环境变量覆盖配置：
+Override configuration with environment variables:
 
 ```bash
 docker run -itd \
@@ -156,83 +154,83 @@ docker run -itd \
   hatchify
 ```
 
-**注意事项：**
-- ⚠️ 生产部署时务必修改 `HATCHIFY__SERVER__BASE_URL` 为实际的外网地址
-- 确保 `./data` 和 `./resources` 目录存在且有正确的权限
-- 首次启动前需要先配置 `resources/mcp.toml` 和 `resources/models.toml`
+**Important Notes:**
+- ⚠️ For production deployment, make sure to modify `HATCHIFY__SERVER__BASE_URL` to the actual public URL
+- Ensure `./data` and `./resources` directories exist with proper permissions
+- Configure `resources/mcp.toml` and `resources/models.toml` before first startup
 
-## 📁 项目结构
+## 📁 Project Structure
 
 ```
 Hatchify/
-├── hatchify/                      # 主应用包
-│   ├── business/                  # 业务层
-│   │   ├── api/v1/               # RESTful API 路由
-│   │   ├── db/                   # 数据库配置
-│   │   ├── models/               # ORM 模型
-│   │   ├── repositories/         # 数据访问层
-│   │   └── services/             # 业务逻辑层
-│   ├── common/                    # 共享层
-│   │   ├── domain/               # 领域模型（Entity、Event）
-│   │   ├── extensions/           # 扩展模块
-│   │   └── settings/             # 配置管理
-│   ├── core/                      # 核心引擎
-│   │   ├── factory/              # 工厂模式（Agent、LLM、Tool）
-│   │   ├── graph/                # 动态图构建系统
-│   │   ├── manager/              # 管理器（MCP、Model、Tool）
-│   │   ├── mcp/                  # MCP 协议集成
-│   │   └── stream_handler/       # 事件流处理
-│   └── launch/                    # 应用启动入口
-├── resources/                     # 配置文件目录
-│   ├── development.yaml          # 环境配置
-│   ├── mcp.toml                  # MCP 服务器配置
-│   └── models.toml               # 模型配置
-└── main.py                        # 程序入口
+├── hatchify/                      # Main application package
+│   ├── business/                  # Business layer
+│   │   ├── api/v1/               # RESTful API routes
+│   │   ├── db/                   # Database configuration
+│   │   ├── models/               # ORM models
+│   │   ├── repositories/         # Data access layer
+│   │   └── services/             # Business logic layer
+│   ├── common/                    # Shared layer
+│   │   ├── domain/               # Domain models (Entity, Event)
+│   │   ├── extensions/           # Extension modules
+│   │   └── settings/             # Configuration management
+│   ├── core/                      # Core engine
+│   │   ├── factory/              # Factory pattern (Agent, LLM, Tool)
+│   │   ├── graph/                # Dynamic graph building system
+│   │   ├── manager/              # Managers (MCP, Model, Tool)
+│   │   ├── mcp/                  # MCP protocol integration
+│   │   └── stream_handler/       # Event stream processing
+│   └── launch/                    # Application entry point
+├── resources/                     # Configuration directory
+│   ├── development.yaml          # Environment configuration
+│   ├── mcp.toml                  # MCP server configuration
+│   └── models.toml               # Model configuration
+└── main.py                        # Program entry point
 ```
 
-## 🔥 核心功能
+## 🔥 Core Features
 
-### 1. 💬 Vibe Graph - 自然语言驱动的工作流生成
+### 1. 💬 Vibe Graph - Natural Language-Driven Workflow Generation
 
-通过自然语言交互，利用 LLM 的语义理解能力自动生成 GraphSpec 规范，实现从需求描述到可执行工作流的端到端转换。系统采用结构化输出机制，将用户意图解析为包含 Agent 节点、工具配置和路由策略的完整图定义。
+Through natural language interaction, leveraging LLM's semantic understanding to automatically generate GraphSpec specifications, enabling end-to-end conversion from requirement descriptions to executable workflows. The system uses structured output mechanisms to parse user intent into complete graph definitions containing Agent nodes, tool configurations, and routing strategies.
 
-**核心能力：**
-- 🗣️ **语义解析**：基于 LLM 的意图理解，将自然语言需求映射为 GraphSpec 结构
-- 🧠 **智能推断**：自动推断 Agent 角色定位、工具依赖关系和节点间路由逻辑
-- 🔄 **对话式迭代**：支持多轮对话优化工作流结构，动态调整节点配置
-- 📊 **自动编排**：根据任务特征自动选择 LLM 模型、分配工具集和配置路由策略
+**Core Capabilities:**
+- 🗣️ **Semantic Parsing**: LLM-based intent understanding, mapping natural language requirements to GraphSpec structure
+- 🧠 **Intelligent Inference**: Auto-infer Agent role positioning, tool dependencies, and inter-node routing logic
+- 🔄 **Conversational Iteration**: Support multi-turn dialogue for workflow structure optimization and dynamic node configuration
+- 📊 **Auto-Orchestration**: Automatically select LLM models, assign tool sets, and configure routing strategies based on task characteristics
 
-### 2. 🏗️ 灵活的 Graph 构建系统
+### 2. 🏗️ Flexible Graph Building System
 
-Graph 由节点（Node）和边（Edge）组成，支持声明式定义复杂的多智能体协作流程。
+Graphs consist of nodes and edges, supporting declarative definition of complex multi-agent collaboration processes.
 
-**节点类型：**
+**Node Types:**
 
-**Agent 节点** - 基于 LLM 的智能节点
-- **General Agent**：通用型 Agent，执行具体任务（如数据分析、内容生成）
-- **Router Agent**：路由型 Agent，根据上游输出的结构化字段决定工作流跳转
-- **Orchestrator Agent**：编排型 Agent，中心化协调所有节点，支持 `COMPLETE` 信号终止流程
+**Agent Nodes** - LLM-based intelligent nodes
+- **General Agent**: General-purpose Agent executing specific tasks (e.g., data analysis, content generation)
+- **Router Agent**: Routing Agent determining workflow jumps based on upstream structured output fields
+- **Orchestrator Agent**: Orchestration Agent centrally coordinating all nodes, supporting `COMPLETE` signal for process termination
 
-每个 Agent 可配置：
-- 动态模型选择（支持 OpenAI、Gemini、Claude 等）
-- 工具集注册（MCP 工具、自定义本地工具）
-- 结构化输出 Schema（用于路由决策和数据传递）
+Each Agent can be configured with:
+- Dynamic model selection (supporting OpenAI, Gemini, Claude, etc.)
+- Tool set registration (MCP tools, custom local tools)
+- Structured output Schema (for routing decisions and data passing)
 
-**Function 节点** - 确定性函数节点
-- 使用 `@tool` 装饰器定义，作为 Graph 中的独立节点
-- 接收上游 Agent 的结构化输出作为输入
-- 执行确定性操作（如数据转换、格式化、计算）
-- 必须返回 Pydantic BaseModel 类型，确保类型安全的数据传递
-- 通过 `function_ref` 引用预注册的函数名
+**Function Nodes** - Deterministic function nodes
+- Defined using `@tool` decorator as independent nodes in Graph
+- Receive structured output from upstream Agents as input
+- Execute deterministic operations (e.g., data transformation, formatting, computation)
+- Must return Pydantic BaseModel type for type-safe data passing
+- Referenced via `function_ref` to pre-registered function names
 
-**工具与自定义扩展：**
+**Tools and Custom Extensions:**
 
-**1. Agent 工具（供 Agent 调用）**
-- **MCP 工具**：支持 Model Context Protocol 标准，动态加载外部工具服务器
-  - 文件系统操作（`@modelcontextprotocol/server-filesystem`）
-  - Git 操作（`@modelcontextprotocol/server-github`）
-  - 数据库查询等
-- **自定义本地工具**：使用 `@tool` 装饰器定义并注册到 `ToolRouter`
+**1. Agent Tools (Called by Agents)**
+- **MCP Tools**: Support Model Context Protocol standard, dynamically load external tool servers
+  - File system operations (`@modelcontextprotocol/server-filesystem`)
+  - Git operations (`@modelcontextprotocol/server-github`)
+  - Database queries, etc.
+- **Custom Local Tools**: Define using `@tool` decorator and register to `ToolRouter`
   ```python
   from strands import tool, ToolContext
   from hatchify.core.factory.tool_factory import ToolRouter
@@ -246,9 +244,9 @@ Graph 由节点（Node）和边（Edge）组成，支持声明式定义复杂的
   tool_router.register(add)
   ```
 
-**2. Function 节点（作为 Graph 节点）**
-- 使用相同的 `@tool` 装饰器，但注册到 Function Router
-- 必须定义 Pydantic 输出模型
+**2. Function Nodes (As Graph Nodes)**
+- Use same `@tool` decorator but register to Function Router
+- Must define Pydantic output model
   ```python
   from pydantic import BaseModel
   from strands import tool
@@ -261,13 +259,13 @@ Graph 由节点（Node）和边（Edge）组成，支持声明式定义复杂的
       return EchoResult(text=f"[ECHO] {text}")
   ```
 
-### 3. ⚙️ 统一的配置管理
+### 3. ⚙️ Unified Configuration Management
 
-通过声明式配置文件管理模型和工具，支持多 Provider 和多传输协议。
+Manage models and tools through declarative configuration files, supporting multiple Providers and transport protocols.
 
-**模型配置（`resources/models.toml`）**
+**Model Configuration (`resources/models.toml`)**
 
-支持多 Provider 配置，统一管理不同 LLM 服务商的模型：
+Support multiple Provider configurations for unified management of different LLM service providers:
 
 ```toml
 default_provider = "openai-like"
@@ -279,7 +277,7 @@ family = "openai"
 base_url = "https://api.openai.com/v1"
 api_key = "sk-xxx"
 enabled = true
-priority = 3  # 优先级，数字越小优先级越高
+priority = 3  # Priority, lower number = higher priority
 
 [[providers.openai.models]]
 id = "gpt-4o"
@@ -302,17 +300,17 @@ max_tokens = 64000
 context_window = 200000
 ```
 
-**配置特性：**
-- 支持多 Provider 同时配置（OpenAI、Anthropic、DeepSeek 等）
-- `priority` 字段控制 Provider 回退顺序（数字越小优先级越高）
-- 支持单独禁用某个模型（`enabled = false`）
-- 兼容 OpenAI-Like 接口（适配第三方代理服务）
+**Configuration Features:**
+- Support multiple Provider configurations simultaneously (OpenAI, Anthropic, DeepSeek, etc.)
+- `priority` field controls Provider fallback order (lower number = higher priority)
+- Support individually disabling models (`enabled = false`)
+- Compatible with OpenAI-Like interfaces (adapt third-party proxy services)
 
-**MCP 工具配置（`resources/mcp.toml`）**
+**MCP Tool Configuration (`resources/mcp.toml`)**
 
-支持三种传输协议，动态加载外部工具服务器：
+Support three transport protocols for dynamically loading external tool servers:
 
-**1. Stdio 传输（本地进程）**
+**1. Stdio Transport (Local Process)**
 ```toml
 [[servers]]
 name = "filesystem"
@@ -320,9 +318,9 @@ transport = "stdio"
 enabled = true
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-prefix = "fs"  # 工具名前缀
+prefix = "fs"  # Tool name prefix
 
-# 可选配置
+# Optional configuration
 cwd = "/tmp"
 encoding = "utf-8"
 
@@ -330,10 +328,10 @@ encoding = "utf-8"
 NODE_ENV = "production"
 
 [servers.tool_filters]
-allowed = ["read_file", "write_file"]  # 白名单
+allowed = ["read_file", "write_file"]  # Whitelist
 ```
 
-**2. SSE 传输（Server-Sent Events）**
+**2. SSE Transport (Server-Sent Events)**
 ```toml
 [[servers]]
 name = "calculator-sse"
@@ -348,7 +346,7 @@ sse_read_timeout = 300
 Authorization = "Bearer your-token"
 ```
 
-**3. StreamableHTTP 传输**
+**3. StreamableHTTP Transport**
 ```toml
 [[servers]]
 name = "weather-api"
@@ -360,95 +358,95 @@ timeout = 30
 terminate_on_close = true
 ```
 
-**MCP 配置特性：**
-- 支持三种传输协议（stdio / sse / streamablehttp）
-- 工具过滤器（白名单 `allowed` / 黑名单 `rejected`）
-- 工具名前缀（避免命名冲突）
-- 动态启用/禁用服务器（`enabled` 字段）
+**MCP Configuration Features:**
+- Support three transport protocols (stdio / sse / streamablehttp)
+- Tool filters (whitelist `allowed` / blacklist `rejected`)
+- Tool name prefixes (avoid naming conflicts)
+- Dynamic enable/disable servers (`enabled` field)
 
-### 4. 🎨 Web Builder - Vibe 建站 🚧
+### 4. 🎨 Web Builder - Vibe Website Builder 🚧
 
-> **状态：正在实现中**
-> 该功能目前处于开发阶段，部分功能可能尚未完善。
+> **Status: In Development**
+> This feature is currently under development, some functions may not be fully implemented.
 
-通过自然语言对话，让 AI 自动生成和定制 Web 应用，从需求描述到部署上线一站式完成。
+Through natural language conversation, let AI automatically generate and customize web applications, from requirement description to deployment in one stop.
 
-**技术栈：**
+**Tech Stack:**
 - React 19 + TypeScript
-- Vite 7（构建工具）
-- Tailwind CSS 4（样式框架）
-- React JSON Schema Form（动态表单生成）
+- Vite 7 (Build tool)
+- Tailwind CSS 4 (Styling framework)
+- React JSON Schema Form (Dynamic form generation)
 
-**工作流程：**
+**Workflow:**
 
-1. **项目初始化**
-   - 基于 Graph 的 `input_schema` 和 `output_schema` 自动生成 Web 项目
-   - 生成表单页面（用于输入数据并触发 Webhook）
-   - 生成结果展示页面（智能渲染 Graph 输出）
+1. **Project Initialization**
+   - Auto-generate web project based on Graph's `input_schema` and `output_schema`
+   - Generate form page (for inputting data and triggering Webhook)
+   - Generate result display page (intelligently render Graph output)
 
-2. **对话式定制**
-   - Agent 可调用工具对项目进行修改：
-     - `file_read`：读取项目文件
-     - `editor`：编辑代码文件
-     - `file_write`：创建新文件
-     - `shell`：Bash工具实现
-   - 支持多轮对话，迭代优化界面设计和功能
+2. **Conversational Customization**
+   - Agent can call tools to modify the project:
+     - `file_read`: Read project files
+     - `editor`: Edit code files
+     - `file_write`: Create new files
+     - `shell`: Bash tool implementation
+   - Support multi-turn dialogue for iterative interface design and functionality optimization
 
-3. **智能内容渲染**
-   - 自动识别输出数据类型（图片、URL、结构化数据、列表等）
-   - 防御性编程，兼容实际数据与 Schema 不一致的情况
-   - 响应式设计，自适应各种设备尺寸
+3. **Intelligent Content Rendering**
+   - Auto-identify output data types (images, URLs, structured data, lists, etc.)
+   - Defensive programming, compatible with data-schema mismatches
+   - Responsive design, adapts to various device sizes
 
-4. **一键部署**
-   - 自动执行 `npm install` 和 `npm run build`
-   - 将构建产物挂载到 `/preview/{graph_id}` 路径
-   - 实时推送构建日志和进度
-   - 支持热更新，修改后自动重新构建
+4. **One-Click Deployment**
+   - Auto-execute `npm install` and `npm run build`
+   - Mount build artifacts to `/preview/{graph_id}` path
+   - Real-time push build logs and progress
+   - Support hot updates, auto-rebuild after modifications
 
-**使用场景：**
-- 为 Graph 工作流快速生成 Web 界面
-- 无需前端开发经验，通过对话式交互定制界面
-- 自动生成基于 JSON Schema 的动态表单
-- 智能渲染各种类型的 Graph 输出结果
+**Use Cases:**
+- Quickly generate web interfaces for Graph workflows
+- No frontend development experience needed, customize interfaces through conversational interaction
+- Auto-generate dynamic forms based on JSON Schema
+- Intelligently render various types of Graph output results
 
-### 5. 🔧 环境配置系统
+### 5. 🔧 Environment Configuration System
 
-通过 `resources/development.yaml` 集中管理应用的所有运行时配置。
+Centrally manage all runtime configurations through `resources/development.yaml`.
 
-**核心配置项：**
+**Core Configuration Items:**
 
-**1. 服务器配置**
+**1. Server Configuration**
 ```yaml
 hatchify:
   server:
     host: 0.0.0.0
     port: 8000
-    base_url: http://localhost:8000  # ⚠️ 生产环境必须改为外网地址
+    base_url: http://localhost:8000  # ⚠️ Must change to public URL in production
 ```
 
-⚠️ **重要提示**：`base_url` 是最关键的配置项
-- 本地开发：`http://localhost:8000`
-- 生产部署：必须修改为实际的外网地址（如 `https://your-domain.com`）
-- 影响范围：Webhook 回调、Web Builder 项目的 API 地址、预览页面的资源加载
+⚠️ **Important Note**: `base_url` is the most critical configuration item
+- Local development: `http://localhost:8000`
+- Production deployment: Must modify to actual public URL (e.g., `https://your-domain.com`)
+- Impact scope: Webhook callbacks, Web Builder project API addresses, preview page resource loading
 
-**2. 模型配置**
+**2. Model Configuration**
 ```yaml
 models:
-  spec_generator:      # Vibe Graph 生成器使用的模型
+  spec_generator:      # Model used by Vibe Graph generator
     model: claude-sonnet-4-5-20250929
     provider: anthropic
-  schema_extractor:    # Schema 提取器使用的模型
+  schema_extractor:    # Model used by Schema extractor
     model: claude-sonnet-4-5-20250929
     provider: anthropic
-  web_builder:         # Web Builder 使用的模型
+  web_builder:         # Model used by Web Builder
     model: claude-sonnet-4-5-20250929
     provider: anthropic
 ```
 
-**3. 数据库配置**
+**3. Database Configuration**
 ```yaml
 db:
-  platform: sqlite  # 当前仅支持: sqlite
+  platform: sqlite  # Currently only supports: sqlite
   sqlite:
     driver: sqlite+aiosqlite
     file: ./data/dev.db
@@ -456,134 +454,232 @@ db:
     pool_pre_ping: True
 ```
 
-⚠️ **注意**：当前版本仅支持 SQLite，PostgreSQL 和 MySQL 支持将在未来版本中添加。
+⚠️ **Note**: Current version only supports SQLite. PostgreSQL and MySQL support will be added in future releases.
 
-**4. 存储配置**
+**4. Storage Configuration**
 ```yaml
 storage:
-  platform: opendal  # 当前仅支持: opendal
+  platform: opendal  # Currently only supports: opendal
   opendal:
-    schema: fs  # 支持: fs / s3 / oss 等（基于 OpenDAL）
+    schema: fs  # Supports: fs / s3 / oss, etc. (based on OpenDAL)
     bucket: hatchify
     folder: dev
     root: ./data/storage
 ```
 
-**5. 会话管理配置**
+**5. Session Management Configuration**
 ```yaml
 session_manager:
-  manager: file  # 当前仅支持: file
+  manager: file  # Currently only supports: file
   file:
     folder: dev
     root: ./data/session
 ```
 
-**6. Web Builder 配置**
+**6. Web Builder Configuration**
 ```yaml
 web_app_builder:
   repo_url: https://github.com/Sider-ai/hatchify-web-app-template.git
   branch: master
   workspace: ./data/workspace
 
-  # 项目初始化时的环境变量注入
+  # Environment variable injection during project initialization
   init_steps:
     - type: env
       file: .env
       vars:
-        VITE_API_BASE_URL: "{{base_url}}"  # 自动使用 server.base_url
+        VITE_API_BASE_URL: "{{base_url}}"  # Auto-use server.base_url
         VITE_GRAPH_ID: "{{graph_id}}"
         VITE_BASE_PATH: "/preview/{{graph_id}}"
 
-  # 安全配置
+  # Security configuration
   security:
-    allowed_directories:  # 白名单：允许 Agent 访问的目录
+    allowed_directories:  # Whitelist: directories Agent can access
       - ./data/workspace
       - /tmp
-    sensitive_paths:      # 黑名单：禁止访问的敏感路径
+    sensitive_paths:      # Blacklist: sensitive paths forbidden to access
       - ~/.ssh
       - ~/.aws
       - /etc/passwd
       - /root
 ```
 
-**环境变量覆盖：**
+**Environment Variable Override:**
 
-支持通过环境变量覆盖配置，使用 `HATCHIFY__` 前缀：
+Support overriding configuration via environment variables using `HATCHIFY__` prefix:
 
 ```bash
-# 覆盖服务器端口
+# Override server port
 export HATCHIFY__SERVER__PORT=8080
 
-# 覆盖 base_url（生产部署时使用）
+# Override base_url (use in production deployment)
 export HATCHIFY__SERVER__BASE_URL=https://your-domain.com
 
-# 覆盖数据库平台
+# Override database platform
 export HATCHIFY__DB__PLATFORM=postgresql
 ```
 
-**配置优先级：** 环境变量 > YAML 配置文件 > 默认值
+**Configuration Priority:** Environment Variables > YAML Configuration File > Default Values
 
-### 6. 🏛️ 企业级分层架构
+### 6. 🏛️ Enterprise-Grade Layered Architecture
 
-采用经典的三层架构设计（API → Service → Repository），通过泛型和依赖注入实现高内聚低耦合。
+Adopting classic three-tier architecture design (API → Service → Repository), achieving high cohesion and low coupling through generics and dependency injection.
 
-**架构层次：**
+**Architecture Layers:**
 
 ```
 ┌─────────────────────────────────────────────┐
-│         API 层 (FastAPI Router)             │
-│  - 路由定义、请求验证、响应序列化             │
-│  - Depends 依赖注入                         │
+│         API Layer (FastAPI Router)          │
+│  - Route definition, request validation,    │
+│    response serialization                   │
+│  - Dependency injection via Depends         │
 └─────────────────┬───────────────────────────┘
-                  │ 调用
+                  │ Calls
 ┌─────────────────▼───────────────────────────┐
-│         Service 层 (GenericService[T])      │
-│  - 业务逻辑编排、事务管理                    │
-│  - 跨 Repository 协调                       │
+│       Service Layer (GenericService[T])     │
+│  - Business logic orchestration,            │
+│    transaction management                   │
+│  - Cross-Repository coordination            │
 └─────────────────┬───────────────────────────┘
-                  │ 使用
+                  │ Uses
 ┌─────────────────▼───────────────────────────┐
-│       Repository 层 (BaseRepository[T])     │
-│  - 数据访问抽象、CRUD 操作                   │
-│  - 查询构建、分页封装                        │
+│      Repository Layer (BaseRepository[T])   │
+│  - Data access abstraction, CRUD operations │
+│  - Query building, pagination encapsulation │
 └─────────────────┬───────────────────────────┘
-                  │ 操作
+                  │ Operates
 ┌─────────────────▼───────────────────────────┐
-│         数据库层 (SQLAlchemy ORM)           │
-│  - ORM 模型、数据库连接                      │
+│       Database Layer (SQLAlchemy ORM)       │
+│  - ORM models, database connections         │
 └─────────────────────────────────────────────┘
 ```
 
-**1. Repository 层 - 数据访问抽象**
+**1. Repository Layer - Data Access Abstraction**
 
-**核心特性：**
-- 泛型设计，类型安全
-- 异步操作，高性能
-- 统一的分页接口（基于 `fastapi-pagination`）
-- 灵活的查询过滤（`find_by(**filters)`）
+**Core Features:**
+- Generic design, type-safe
+- Asynchronous operations, high performance
+- Unified pagination interface (based on `fastapi-pagination`)
+- Flexible query filtering (`find_by(**filters)`)
 
-**2. Service 层 - 业务逻辑编排**
+**2. Service Layer - Business Logic Orchestration**
 
-**核心特性：**
-- 事务管理（自动 commit/rollback）
-- 数据验证（基于 Pydantic）
-- 跨 Repository 协调
-- 业务逻辑复用
+**Core Features:**
+- Transaction management (auto commit/rollback)
+- Data validation (based on Pydantic)
+- Cross-Repository coordination
+- Business logic reuse
 
-**3. API 层 - 路由与依赖注入**
+**3. API Layer - Routing and Dependency Injection**
 
-**核心特性：**
-- 依赖注入（`ServiceManager`、`RepositoryManager`）
-- 统一响应格式（`Result[T]`）
-- 自动参数验证（Pydantic）
-- 统一异常处理
+**Core Features:**
+- Dependency injection (`ServiceManager`, `RepositoryManager`)
+- Unified response format (`Result[T]`)
+- Automatic parameter validation (Pydantic)
+- Unified exception handling
 
+**Architecture Advantages:**
+- 📦 **Separation of Concerns**: Clear responsibilities per layer, easy to maintain
+- 🔄 **Testability**: Each layer can be unit tested independently
+- 🔌 **Extensibility**: Quickly extend new entities through generic base classes
+- 🎯 **Type Safety**: Generics + Pydantic ensure type correctness
+- 🚀 **Development Efficiency**: Common CRUD operations out-of-the-box
 
-**架构优势：**
-- 📦 **关注点分离**：每层职责清晰，易于维护
-- 🔄 **可测试性**：每层可独立单元测试
-- 🔌 **可扩展性**：通过泛型基类快速扩展新实体
-- 🎯 **类型安全**：泛型 + Pydantic 保证类型正确性
-- 🚀 **开发效率**：通用 CRUD 操作开箱即用
+## 🛠️ API Endpoints Overview
+
+### Graph Management
+- `GET /api/graphs` - List all Graphs
+- `POST /api/graphs` - Create new Graph
+- `GET /api/graphs/{graph_id}` - Get Graph details
+- `PUT /api/graphs/{graph_id}` - Update Graph
+- `DELETE /api/graphs/{graph_id}` - Delete Graph
+
+### Execution
+- `POST /api/webhooks/{graph_id}` - Execute Graph (Webhook)
+- `GET /api/executions` - Query execution records
+
+### Web Builder
+- `POST /api/web_builder/create` - Create Web Builder session
+- `POST /api/web_builder/chat` - Conversational building
+- `POST /api/web_builder/deploy` - Deploy generated web application
+
+### Version Management
+- `GET /api/graph_versions` - List version history
+- `POST /api/graph_versions` - Create version snapshot
+
+### Sessions and Messages
+- `GET /api/sessions` - List sessions
+- `POST /api/sessions` - Create session
+- `GET /api/messages` - Query message history
+
+### System
+- `GET /api/tools` - List available tools
+- `GET /api/models` - List available models
+
+## 📝 Common Tasks
+
+### Adding New Agent Type
+1. Define configuration in `AgentCard`
+2. Add to `GraphSpec.agents`
+3. `AgentFactory` automatically handles creation
+
+### Adding New Function Node
+1. Implement function in `core/graph/functions/`
+2. Register in `FunctionManager`
+3. Reference in `GraphSpec.functions`
+
+### Adding New Tool
+1. **Strands Tools**: Implement in `core/graph/tools/`
+2. **MCP Tools**: Configure MCP server in `resources/mcp.toml`
+
+### Adding New Event Type
+1. Define event class in `common/domain/event/` (inherit from `StreamEvent`)
+2. Trigger in corresponding stream processor (e.g., `GraphExecutor`)
+3. Frontend receives via SSE
+
+### Custom Routing Logic
+Extend routing types in `DynamicGraphBuilder._create_edge_condition()`.
+
+## 📚 Development Guide
+
+### Database
+- **Supported Databases**: SQLite (default), PostgreSQL (planned), MySQL (planned)
+- **Connection Configuration**: Via `resources/development.yaml`
+- **Initialization**: Database tables auto-created on app startup (`init_db()` in `business/db/session.py`)
+
+### Storage System
+- **Abstraction Layer**: OpenDAL
+- **Supported Schemas**: fs, s3, oss, etc.
+- **Configuration**: Via `resources/development.yaml`
+
+## ⚠️ Important Notes
+
+- **Async First**: All database and I/O operations use `async/await`
+- **Dependency Injection**: Services and Repositories obtained through Manager singletons
+- **Version Management**: Graph's `current_spec` is single source of truth, version table for snapshots
+- **Security**: Web Builder file operations restricted by `security.allowed_directories` (see `development.yaml`)
+- **Configuration Priority**: Environment Variables > YAML > .env file
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🔗 Links
+
+- **Official Website**: [https://hatchify.ai/](https://hatchify.ai/)
+- **Documentation**: Coming soon
+- **GitHub**: [https://github.com/Sider-ai/hatchify](https://github.com/Sider-ai/hatchify)
+
+## 📧 Contact
+
+For questions or feedback, please open an issue on GitHub.
+
+---
+
+Made with ❤️ by Sider.ai
 
 

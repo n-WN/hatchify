@@ -31,7 +31,7 @@ class PreviewMiddleware(BaseHTTPMiddleware):
                 if not dist_path.exists():
                     return HTMLResponse(
                         content=dedent("""<!DOCTYPE html>
-                            <html lang="zh">
+                            <html lang="en">
                             <head>
                                 <meta charset="UTF-8">
                                 <title>Hatchify</title>

@@ -1,8 +1,10 @@
-from fastapi import HTTPException
+from textwrap import dedent
+
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from starlette.responses import HTMLResponse
 
 from hatchify.common.constants.constants import Constants
 from hatchify.core.stream_handler.deploy import MOUNTED_GRAPHS
@@ -27,9 +29,19 @@ class PreviewMiddleware(BaseHTTPMiddleware):
                 dist_path = project_path / Constants.WebBuilder.DIST_DIR
 
                 if not dist_path.exists():
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"项目未部署,请先调用 POST /api/web-builder/deploy"
+                    return HTMLResponse(
+                        content=dedent("""<!DOCTYPE html>
+                            <html lang="zh">
+                            <head>
+                                <meta charset="UTF-8">
+                                <title>Hatchify</title>
+                            </head>
+                            <body>
+                            <div></div>
+                            </body>
+                            </html>"""
+                    ),
+                        status_code=200
                     )
 
                 # 动态挂载
